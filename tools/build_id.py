@@ -57,7 +57,7 @@ def recomp_digest(retail, runtime):
 
 def compiler(build_dir):
     """MSVC version (cl.exe's folder) and the flags from the build's CMakeCache.txt."""
-    out = {'version': 'desconhecido', 'type': '', 'flags': ''}
+    out = {'version': 'unknown', 'type': '', 'flags': ''}
     cache = build_dir / 'CMakeCache.txt'
     if cache.exists():
         for line in cache.read_text(errors='replace').splitlines():
@@ -95,7 +95,7 @@ def ps2recomp_head(runtime):
         return subprocess.run(['git', '-C', str(runtime / 'PS2Recomp'), 'rev-parse', 'HEAD'], capture_output=True, text=True,
                               check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
-        return 'desconhecido'
+        return 'unknown'
 
 
 def compute(repo, runtime, build, ps2recomp_commit=None):
