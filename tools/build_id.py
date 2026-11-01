@@ -25,11 +25,11 @@ def text_digest(path):
 
 def tree_digest(root, skip_dirs=()):
     """sha256 of the files in a folder: each one's relative path and contents, in order; folders named in skip_dirs (at any
-    level) are left out."""
+    level) are left out. Files go in the order of their relative path strings: Path objects sort differently on Windows
+    (case-insensitive) and POSIX (by parts), which would give the same files a different id on each OS."""
     h = hashlib.sha256()
     if root.exists():
-        for p in sorted(root.rglob('*')):
-            rel = p.relative_to(root).as_posix()
+        for rel, p in sorted((p.relative_to(root).as_posix(), p) for p in root.rglob('*')):
             if not p.is_file() or any(part in skip_dirs for part in rel.split('/')[:-1]):
                 continue
             h.update(rel.encode() + b'\0' + text_digest(p).encode() + b'\n')

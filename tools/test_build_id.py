@@ -69,6 +69,19 @@ class BuildIdTest(unittest.TestCase):
             other.write_text('output')
             self.assertEqual(before, self.compute(repo, runtime))
 
+    def test_file_order_is_the_same_on_every_os(self):
+        # Path objects sort case-insensitively on Windows and by path parts on POSIX: the tree digest must order files by their
+        # relative path string (case-sensitive), or the same files give a different id on Windows and the Mac
+        with tempfile.TemporaryDirectory() as a:
+            root = Path(a)
+            for rel in ('README.md', 'ps2recomp.patch', 'a-c.txt', 'a/b.txt'):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(rel)
+            h = build_id.hashlib.sha256()
+            for rel in sorted(('README.md', 'ps2recomp.patch', 'a-c.txt', 'a/b.txt')):
+                h.update(rel.encode() + b'\0' + build_id.text_digest(root / rel).encode() + b'\n')
+            self.assertEqual(build_id.tree_digest(root), h.hexdigest())
+
     def test_compiler_version_comes_from_the_cmake_cache(self):
         with tempfile.TemporaryDirectory() as a:
             _, runtime = make_tree(Path(a))
