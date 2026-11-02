@@ -3,8 +3,12 @@
 #include "wotm_interp.hpp"
 #include "wotm_settings.hpp"
 #include "wotm_mods.hpp"
+#include "wotm_detmath.hpp"
+#include "wotm_trig_goldens.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -259,6 +263,104 @@ namespace
         CHECK(wotm::mods::digest(b) != base);
         fs::remove_all(root);
     }
+}
+
+namespace
+{
+    namespace dm = wotm::detmath;
+
+    uint32_t bitsOf(float f)
+    {
+        uint32_t u;
+        std::memcpy(&u, &f, 4);
+        return u;
+    }
+    float floatOf(uint32_t u)
+    {
+        float f;
+        std::memcpy(&f, &u, 4);
+        return f;
+    }
+    // distance in representable floats (same sign only, which is all the accuracy checks below need)
+    uint32_t ulps(float a, float b)
+    {
+        const uint32_t x = bitsOf(a) & 0x7FFFFFFFu, y = bitsOf(b) & 0x7FFFFFFFu;
+        return (bitsOf(a) >> 31) != (bitsOf(b) >> 31) ? (x + y) : (x > y ? x - y : y - x);
+    }
+    // fixed inputs for the accuracy and determinism checks: a small LCG, so every machine sees the same list
+    std::vector<float> sweep(int n, float lo, float hi)
+    {
+        std::vector<float> v;
+        uint32_t s = 12345u;
+        for (int i = 0; i < n; ++i)
+        {
+            s = s * 1664525u + 1013904223u;
+            v.push_back(lo + (hi - lo) * float(s >> 8) / float(1u << 24));
+        }
+        return v;
+    }
+}
+
+TEST(detmath_sin_cos_equal_retail_bit_for_bit)
+{
+    int bad = 0;
+    for (const wotm::TrigGolden &g : wotm::kTrigGoldens)
+        bad += bitsOf(dm::sinf(floatOf(g.x))) != g.sin || bitsOf(dm::cosf(floatOf(g.x))) != g.cos;
+    CHECK(bad == 0);
+}
+
+TEST(detmath_sin_cos_within_one_ulp)
+{
+    uint32_t worst = 0;
+    for (float x : sweep(20000, -1000.f, 1000.f))
+    {
+        worst = std::max(worst, ulps(dm::sinf(x), float(std::sin(double(x)))));
+        worst = std::max(worst, ulps(dm::cosf(x), float(std::cos(double(x)))));
+    }
+    CHECK(worst <= 1);
+}
+
+TEST(detmath_atan2_special_cases)
+{
+    const float pi = floatOf(0x40490FDBu), halfPi = floatOf(0x3FC90FDBu);
+    CHECK(bitsOf(dm::atan2f(0.f, 1.f)) == 0u);
+    CHECK(bitsOf(dm::atan2f(-0.f, 1.f)) == 0x80000000u);
+    CHECK(dm::atan2f(0.f, -1.f) == pi);
+    CHECK(dm::atan2f(-0.f, -1.f) == -pi);
+    CHECK(dm::atan2f(1.f, 0.f) == halfPi);
+    CHECK(dm::atan2f(-1.f, 0.f) == -halfPi);
+    CHECK(dm::atan2f(5.f, -0.f) == halfPi);
+}
+
+TEST(detmath_atan2_within_one_ulp)
+{
+    const std::vector<float> ys = sweep(20000, -500.f, 500.f), xs = sweep(20001, -500.f, 500.f);
+    uint32_t worst = 0;
+    for (size_t i = 0; i < ys.size(); ++i)
+        worst = std::max(worst, ulps(dm::atan2f(ys[i], xs[i + 1]), float(std::atan2(double(ys[i]), double(xs[i + 1])))));
+    CHECK(worst <= 1);
+}
+
+// The point of wotm_detmath.hpp: the same bits on every compiler and CPU. The expected digest was measured on the Mac (clang,
+// arm64); Windows (MSVC, x64) must print the same, or its build computes the camera differently and a network match desyncs.
+TEST(detmath_same_bits_on_every_machine)
+{
+    uint64_t h = 1469598103934665603ull;   // FNV-1a over the result bits
+    auto mix = [&h](float f) {
+        const uint32_t u = bitsOf(f);
+        for (int k = 0; k < 4; ++k)
+            h = (h ^ ((u >> (8 * k)) & 0xFFu)) * 1099511628211ull;
+    };
+    const std::vector<float> a = sweep(50000, -20000.f, 20000.f), b = sweep(50001, -3.f, 3.f);
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        mix(dm::sinf(a[i]));
+        mix(dm::cosf(a[i]));
+        mix(dm::atan2f(a[i], b[i + 1]));
+        mix(dm::atan2f(b[i], b[i + 1]));
+    }
+    std::printf("  detmath digest %016llx\n", static_cast<unsigned long long>(h));
+    CHECK(h == 0xa6c8104174bda8ccull);
 }
 
 int main()
