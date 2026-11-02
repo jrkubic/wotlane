@@ -29,8 +29,11 @@ and can be shared freely.
      publicly as** (with a name) before pressing **Host on this PC** (see "Public server list" below).
    - **Standalone:** run `native\net\build\wotm_server.exe --port 7777` and leave its window open while you play; close it to stop.
    Players create the lobbies themselves from the launcher (up to 16 at a time, `--lobbies N` to change; `--players 2..8` per lobby, 8 by default).
-3. The first time, Windows Firewall asks about `wotm_server.exe`: allow it on private networks (and public if your network is marked
-   public).
+3. The first time, Windows Firewall asks about `wotm_server.exe`: allow it, for private and public networks. The launcher reads the
+   firewall's rules for `wotm_server.exe` while you host and says under the box whether friends can get in on your current network
+   type. If a rule is missing (the prompt was dismissed, or it only covers private networks and yours is public) or a rule blocks it
+   (Cancel on the prompt), it says so and offers **Allow in Windows Firewall**: Windows asks for permission, the rule is added for
+   every network type, TCP and UDP, and the line turns green. Without that rule UPnP is useless: the router forwards, Windows drops.
 4. If UPnP did not open the port, let your friends reach it, one of:
    - **Port forwarding (no extra software):** find your PC's local address with `ipconfig` ("IPv4 Address", for example 192.168.1.50).
      In your router's admin page (usually http://192.168.1.1 or http://192.168.0.1), add a port forwarding rule: external port **7777**,

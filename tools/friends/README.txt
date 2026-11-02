@@ -38,7 +38,9 @@ Needs: Windows 10 or 11 (64-bit), a CPU from roughly 2015 or newer (AVX2), a con
 1. Open WotM_Launcher.exe, pick your monster and the Stage in the Match group, type your name in the Online group.
 2. Press "Host on this PC". A box appears with the lobby code and the addresses your friends can use. Copy it to your friends.
    Keep the launcher open while you play: closing it stops the server.
-3. If Windows asks whether wotm_server may use the network, press Allow.
+3. If Windows asks whether wotm_server may use the network, press Allow (tick both private and public networks). Under the box the
+   launcher says what Windows Firewall thinks of wotm_server on your network; if it says friends get no answer, press
+   "Allow in Windows Firewall" and accept the Windows permission prompt.
 4. The launcher asks your router to open the port (UPnP). If the box says the router refused:
    - forward port 7777, TCP and UDP, on your router to the local address the box shows, or
    - everyone installs Tailscale (free, tailscale.com), joins the host's network, and uses the host's 100.x.y.z address.
@@ -52,6 +54,9 @@ Problems
 - "game configuration differs from the others": someone changed the mods folder or launcher checkboxes. Use the package as
   it came.
 - "no answer from the server": wrong address, the host's port is not open, or a firewall blocks it.
+  Host: read the Windows Firewall line under the box (and press "Allow in Windows Firewall" if it asks you to). If it is fine and
+  the box says the router opened the port, compare the Internet address in the box with what "what is my ip" shows in a browser:
+  a different address means a second router or the provider's shared address (CGNAT); use Tailscale then.
 - The game opened on its own main menu instead of the match: someone pressed "Play" (offline) instead of "Start match". Close the
   game, open the launcher again and host or join the lobby again.
 - Anything else: send the host runtime\live.err.log (the host also has wotm_server.log next to the launcher).

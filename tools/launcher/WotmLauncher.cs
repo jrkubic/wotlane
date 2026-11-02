@@ -499,6 +499,13 @@ class Launcher : Form
     readonly List<LobbyClient.ServerInfo> netServerInfos = new List<LobbyClient.ServerInfo>();
     readonly CheckBox netPublic = new DarkCheckBox { Text = "List publicly as", AutoSize = true };
     readonly TextBox netPublicName = new TextBox { Width = 120 };
+
+    // under the share box: what Windows Firewall says about wotm_server on this network, and the button that fixes it
+    readonly Label netHostCheck = new Label { AutoSize = true, MaximumSize = new Size(400, 0), Visible = false };
+    readonly Button netAllowFw = new Button { Text = "Allow in Windows Firewall", AutoSize = true, Visible = false };
+    readonly Timer fwTimer = new Timer { Interval = 3000 };
+    string serverExe = "", hostedFirewall = "";
+    bool hostedFirewallProblem, fwBusy;
     ServerHost hosted;
     string hostedPublic = "";   // "<master> <name>" the hosted server announces to, "" when private
     List<string> hostedLines = new List<string>();
@@ -606,10 +613,17 @@ class Launcher : Form
         inner.Controls.Add(netInfo);
         tips.SetToolTip(netShare, "Copy this to your friends: they type the address as Server and the code in Code.");
         inner.Controls.Add(netShare);
+        tips.SetToolTip(netAllowFw, "Adds a Windows Firewall rule that lets wotm_server receive connections on every network type (TCP and UDP) " +
+            "and removes the rules the Windows prompt made for it. Windows asks for permission.");
+        netAllowFw.Click += delegate { AllowFirewall(); };
+        inner.Controls.Add(netHostCheck);
+        inner.Controls.Add(netAllowFw);
         netTimer.Tick += delegate { NetPoll(); };
+        fwTimer.Tick += delegate { if (hosted == null) fwTimer.Stop(); else CheckFirewall(); };
         FormClosed += delegate
         {
             netTimer.Stop();
+            fwTimer.Stop();
             if (lobby != null) lobby.Dispose();
             if (hosted != null) hosted.Dispose();
         };
@@ -746,7 +760,69 @@ class Launcher : Form
         netServer.Text = "127.0.0.1:" + port;
         hostedLines = ServerHost.ShareLines(ServerHost.LocalAddresses(), null, port);
         ShowShare();
+        serverExe = exe;
+        CheckFirewall();
         NetCreate();
+    }
+
+    // Reads the Windows Firewall rules for the server's exe on a thread and shows the verdict under the share box. Windows creates the
+    // rules only when the host answers its prompt, which comes after the server starts, so it is checked again every few seconds
+    // (fwTimer) until the answer is good; the timer also catches the Allow button's change.
+    void CheckFirewall()
+    {
+        if (fwBusy || serverExe.Length == 0) return;
+        fwBusy = true;
+        string exe = serverExe;
+        new System.Threading.Thread(delegate()
+        {
+            string text;
+            bool problem = false;
+            try
+            {
+                int current, enabled;
+                List<FirewallRule> rules = FirewallCheck.RulesFor(exe, out current, out enabled);
+                text = FirewallCheck.Verdict(rules, current, enabled, out problem);
+            }
+            catch (Exception e) { text = "Could not read the Windows Firewall rules (" + e.Message + ")."; }
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    fwBusy = false;
+                    hostedFirewall = text;
+                    hostedFirewallProblem = problem;
+                    if (problem || !text.StartsWith("Windows Firewall")) fwTimer.Start(); else fwTimer.Stop();
+                    ShowShare();
+                });
+            }
+            catch (InvalidOperationException) { }   // launcher already closed
+        }) { IsBackground = true }.Start();
+    }
+
+    // The button: adds the allow rule through an elevated PowerShell (UAC prompt), then checks again.
+    void AllowFirewall()
+    {
+        if (serverExe.Length == 0) return;
+        string exe = serverExe;
+        netAllowFw.Enabled = false;
+        netHostCheck.Text = "Windows is asking for permission to change the firewall...";
+        new System.Threading.Thread(delegate()
+        {
+            string why;
+            bool ok = FirewallCheck.Allow(exe, out why);
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    netAllowFw.Enabled = true;
+                    if (ok) { CheckFirewall(); return; }
+                    hostedFirewall = "Firewall rule not added: " + why + ".";
+                    hostedFirewallProblem = true;
+                    ShowShare();
+                });
+            }
+            catch (InvalidOperationException) { }   // launcher already closed
+        }) { IsBackground = true }.Start();
     }
 
     void MapRouterPort(ServerHost h)
@@ -830,7 +906,7 @@ class Launcher : Form
     // the box the host copies to friends: addresses, lobby code, router status
     void ShowShare()
     {
-        if (hosted == null || (lobby != null && lobby.Host != "127.0.0.1")) { netShare.Visible = false; return; }
+        if (hosted == null || (lobby != null && lobby.Host != "127.0.0.1")) { netShare.Visible = netHostCheck.Visible = netAllowFw.Visible = false; return; }
         var l = new List<string>();
         string code = netCode.Text.Trim();
         l.Add("Friends type one of these as Server" + (code.Length == 4 ? " and the code " + code : "") + ":");
@@ -845,6 +921,11 @@ class Launcher : Form
         if (hosted.Owned) l.Add("If Windows asks whether wotm_server may use the network, allow it.");
         netShare.Text = string.Join(Environment.NewLine, l.ToArray());
         netShare.Visible = true;
+        netHostCheck.Text = hostedFirewall + (hostedFirewallProblem ? " Press 'Allow in Windows Firewall' below (Windows asks for permission); " +
+            "if the Windows prompt is open right now, Allow there for private and public networks." : "");
+        netHostCheck.ForeColor = hostedFirewallProblem ? Color.FromArgb(255, 170, 90) : DimColor;
+        netHostCheck.Visible = hostedFirewall.Length > 0;
+        netAllowFw.Visible = hostedFirewallProblem;
     }
 
     string netSettings = "";

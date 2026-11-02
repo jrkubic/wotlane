@@ -115,6 +115,35 @@ static class LobbyTest
                 Check(LobbyClient.CleanName("La ne<>!_9-") == "Lane_9-", "characters dropped");
                 Check(LobbyClient.CleanName("abcdefghijklmnopqrst").Length == 16, "16 at most");
             });
+            Run("firewall_verdict", delegate
+            {
+                const int all = 0x7FFFFFFF, priv = FirewallCheck.Private, pub = FirewallCheck.Public;
+                bool problem;
+                Func<bool, int, int, FirewallRule> rule = delegate(bool allow, int profiles, int protocol)
+                { return new FirewallRule { Allow = allow, Enabled = true, Profiles = profiles, Protocol = protocol }; };
+                string v = FirewallCheck.Verdict(new FirewallRule[0], priv, priv, out problem);
+                Check(problem && v.Contains("no rule"), "no rule at all");
+                v = FirewallCheck.Verdict(new[] { rule(true, priv, FirewallCheck.Tcp), rule(true, priv, FirewallCheck.Udp) }, pub, priv | pub, out problem);
+                Check(problem && v.Contains("other network types") && v.Contains("Public"), "rule for Private only, network is Public");
+                v = FirewallCheck.Verdict(new[] { rule(true, all, FirewallCheck.Tcp), rule(true, all, FirewallCheck.Udp) }, priv | pub, priv | pub, out problem);
+                Check(!problem && v.Contains("allowed") && v.Contains("Private + Public"), "TCP and UDP allowed everywhere");
+                v = FirewallCheck.Verdict(new[] { rule(true, all, FirewallCheck.AnyProtocol), rule(false, priv, FirewallCheck.AnyProtocol) }, priv, priv, out problem);
+                Check(problem && v.Contains("BLOCKS"), "a block rule wins over the allow rule");
+                FirewallRule off = rule(false, all, FirewallCheck.AnyProtocol);
+                off.Enabled = false;
+                v = FirewallCheck.Verdict(new[] { rule(true, all, FirewallCheck.AnyProtocol), off }, priv, priv, out problem);
+                Check(!problem && v.Contains("allowed"), "a disabled block rule does not count");
+                v = FirewallCheck.Verdict(new[] { rule(true, all, FirewallCheck.Tcp) }, priv, priv, out problem);
+                Check(problem && v.Contains("TCP and UDP"), "TCP alone is not enough");
+                v = FirewallCheck.Verdict(new FirewallRule[0], priv, 0, out problem);
+                Check(!problem && v.Contains("off"), "firewall off is not a problem");
+            });
+            Run("firewall_rules", delegate
+            {
+                int current, enabled;
+                List<FirewallRule> rules = FirewallCheck.RulesFor(server, out current, out enabled);
+                Check(rules != null && current != 0, "reads the rules and the current profile");
+            });
             Run("player_server", delegate
             {
                 const int own = 7898;
