@@ -1,5 +1,5 @@
-// ABOUTME: Test of LobbyClient.cs against the real wotm_server (native\net\build\wotm_server.exe): lists, joins, starts and checks
-// ABOUTME: each player's environment. Build and run: tools\launcher\test.bat (exits with 0 on success).
+// ABOUTME: Test of LobbyClient.cs and ServerHost.cs against the real wotm_server (native\net\build\wotm_server.exe, and a master):
+// ABOUTME: lists, joins, starts, each player's environment, the public server list. Run: tools\launcher\test.bat (0 on success).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -21,8 +21,12 @@ static class LobbyTest
     {
         string server = args.Length > 0 ? args[0] : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\native\net\build\wotm_server.exe");
         if (!File.Exists(server)) { Console.WriteLine("could not find " + server + " (tools\\build_net.bat)"); return 2; }
-        const int port = 7897;
+        const int port = 7897, masterPort = 7896;
         var p = Process.Start(new ProcessStartInfo(server, "--port " + port) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true });
+        var master = Process.Start(new ProcessStartInfo(server, "--master --port " + masterPort)
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true
+        });
         try
         {
             Thread.Sleep(300);
@@ -143,10 +147,64 @@ static class LobbyTest
                       s[2] == "LAN: 192.168.1.5:7777", "order: internet, Tailscale, LAN (" + string.Join(" | ", s.ToArray()) + ")");
                 Check(ServerHost.ShareLines(new IPAddress[0], null, 7777).Count == 0, "no addresses");
             });
+            Run("server_rows", delegate
+            {
+                LobbyClient.ServerInfo s = LobbyClient.ParseServer("SERVER 203.0.113.7 7777 2 3 1 5 16 Lanes_PC");
+                Check(s != null && s.Ip == "203.0.113.7" && s.Port == 7777 && s.Protocol == 2, "address and protocol");
+                Check(s.Open == 3 && s.Waiting == 1 && s.Players == 5 && s.MaxLobbies == 16 && s.Name == "Lanes_PC", "counts and name");
+                Check(LobbyClient.ParseServer("LOBBY ABCD waiting 1/8 open Sala Ana Ana") == null, "not a SERVER row");
+                Check(LobbyClient.ParseServer("SERVER 1.2.3.4 7777 2") == null, "short row");
+                s.Ping = 12;
+                Check(LobbyClient.ServerStatus(s) == "12 ms", "ping (" + LobbyClient.ServerStatus(s) + ")");
+                s.Ping = -1;
+                Check(LobbyClient.ServerStatus(s) == "unreachable", "no answer");
+                s.Protocol = LobbyClient.Protocol + 1;
+                Check(LobbyClient.ServerStatus(s).StartsWith("needs another version"), "other protocol (" + LobbyClient.ServerStatus(s) + ")");
+            });
+            Run("master_address", delegate
+            {
+                string h;
+                int mp;
+                LobbyClient.SplitAddress("master.example.org", LobbyClient.MasterPort, out h, out mp);
+                Check(h == "master.example.org" && mp == 7778, "default master port");
+                LobbyClient.SplitAddress(" 192.168.2.243:9000 ", LobbyClient.MasterPort, out h, out mp);
+                Check(h == "192.168.2.243" && mp == 9000, "explicit port");
+            });
+            Run("no_master", delegate
+            {
+                bool threw = false;
+                try { LobbyClient.Browse("127.0.0.1:" + (masterPort - 2), 500); }
+                catch (LobbyError) { threw = true; }
+                Check(threw, "missing master becomes LobbyError");
+            });
+            Run("public_server_list", delegate
+            {
+                Check(LobbyClient.Browse("127.0.0.1:" + masterPort, 2000).Count == 0, "empty list at first");
+                const int pub = 7895;
+                using (ServerHost h = ServerHost.Start(server, pub, null, 3000, "127.0.0.1:" + masterPort, "Lanes_PC"))
+                {
+                    Check(h.Owned, "this launcher runs the announcing server");
+                    LobbyClient.ServerInfo found = null;
+                    for (int waited = 0; found == null && waited < 5000; waited += 250)
+                    {
+                        foreach (LobbyClient.ServerInfo s in LobbyClient.Browse("127.0.0.1:" + masterPort, 2000))
+                            if (s.Name == "Lanes_PC") found = s;
+                        if (found == null) Thread.Sleep(250);
+                    }
+                    Check(found != null, "the announced server is listed");
+                    if (found != null)
+                    {
+                        Check(found.Port == pub && found.Protocol == LobbyClient.Protocol, "its port and protocol");
+                        Check(found.Ip == "127.0.0.1" && found.Ping >= 0, "address seen by the master, and a ping (" + found.Ping + ")");
+                        Check(LobbyClient.ServerStatus(found).EndsWith(" ms"), "status is the ping");
+                    }
+                }
+            });
         }
         finally
         {
             try { p.Kill(); } catch (Exception) { }
+            try { master.Kill(); } catch (Exception) { }
         }
         Console.WriteLine(checks + " checks, " + failures + " failure(s)");
         return failures == 0 ? 0 : 1;

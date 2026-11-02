@@ -1,5 +1,5 @@
-// ABOUTME: Player-as-host for the launcher: runs wotm_server hidden as a child process, waits for the port, lists the addresses
-// ABOUTME: friends can use (internet, Tailscale, LAN) and opens the port on the router via UPnP. Tested by LobbyTest.cs.
+// ABOUTME: Player-as-host for the launcher: runs wotm_server hidden as a child process (optionally announced on a master server),
+// ABOUTME: lists the addresses friends can use (internet, Tailscale, LAN) and opens the port via UPnP. Tested by LobbyTest.cs.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,13 +29,21 @@ class ServerHost : IDisposable
         log = w;
     }
 
-    public static ServerHost Start(string exe, int port, string logPath, int timeoutMs)
+    // announce/name: list this server publicly on that master server (wotm_server --announce <master> --name <name>); null = private
+    public static ServerHost Start(string exe, int port, string logPath, int timeoutMs, string announce = null, string name = null)
     {
         if (PortOpen(port, 300)) return new ServerHost(port, null, null);
         if (!File.Exists(exe)) throw new LobbyError("could not find " + exe + " (tools\\build_net.bat)");
         StreamWriter w = null;
         if (logPath != null) w = new StreamWriter(logPath, false) { AutoFlush = true };
-        var psi = new ProcessStartInfo(exe, "--port " + port)
+        string args = "--port " + port;
+        if (!string.IsNullOrEmpty(announce))
+        {
+            args += " --announce " + announce.Trim();
+            string n = LobbyClient.CleanName(name ?? "");
+            if (n.Length > 0) args += " --name " + n;
+        }
+        var psi = new ProcessStartInfo(exe, args)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(exe)

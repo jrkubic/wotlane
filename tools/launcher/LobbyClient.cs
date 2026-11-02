@@ -1,5 +1,5 @@
-// ABOUTME: wotm_server lobby client for the launcher (C# 5, .NET Framework): line-based TCP connection, queue of received lines
-// ABOUTME: and the wotm.exe environment for a MATCH line (same as tools/net_lobby.py). Tested by LobbyTest.cs against the server.
+// ABOUTME: wotm_server lobby client for the launcher (C# 5, .NET Framework): line-based TCP connection, queue of received lines,
+// ABOUTME: the wotm.exe environment for a MATCH line and the master server's public list (as net_lobby.py). Tested by LobbyTest.cs.
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -210,6 +210,99 @@ class LobbyClient : IDisposable
             { "WOTM_KILLTARGET", m.ContainsKey("wins") ? m["wins"] : "0" },
             { "WOTM_LOCALPLAYER", (you + 1).ToString() },
         };
+    }
+
+    // ---- public server list: the master server (wotm_server --master, native/net/wotm_net_master.hpp) ----
+    public const int MasterPort = 7778;
+
+    // SERVER <ip> <port> <protocol> <open lobbies> <waiting lobbies> <players> <max lobbies> <name>; Ping is measured from this PC
+    // (milliseconds to open its lobby port), -1 when nothing answers
+    public class ServerInfo
+    {
+        public string Ip, Name;
+        public int Port, Protocol, Open, Waiting, Players, MaxLobbies;
+        public int Ping = -1;
+    }
+
+    public static ServerInfo ParseServer(string line)
+    {
+        string[] w = line.Split(' ');
+        int port, protocol, open, waiting, players, max;
+        if (w.Length != 9 || w[0] != "SERVER" || !int.TryParse(w[2], out port) || !int.TryParse(w[3], out protocol) ||
+            !int.TryParse(w[4], out open) || !int.TryParse(w[5], out waiting) || !int.TryParse(w[6], out players) ||
+            !int.TryParse(w[7], out max))
+            return null;
+        return new ServerInfo
+        {
+            Ip = w[1], Port = port, Protocol = protocol, Open = open, Waiting = waiting, Players = players, MaxLobbies = max, Name = w[8]
+        };
+    }
+
+    // "host" or "host:port" (the port defaults to defaultPort)
+    public static void SplitAddress(string s, int defaultPort, out string host, out int port)
+    {
+        s = s.Trim();
+        int colon = s.LastIndexOf(':');
+        host = colon > 0 ? s.Substring(0, colon) : s;
+        if (colon <= 0 || !int.TryParse(s.Substring(colon + 1), out port) || port <= 0 || port > 65535) port = defaultPort;
+    }
+
+    // the master's list (SERVERS ... END), each server pinged from here in parallel; LobbyError when the master doesn't answer
+    public static List<ServerInfo> Browse(string master, int timeoutMs)
+    {
+        string host;
+        int port;
+        SplitAddress(master, MasterPort, out host, out port);
+        var list = new List<ServerInfo>();
+        using (var tcp = new TcpClient())
+        {
+            try
+            {
+                IAsyncResult ar = tcp.BeginConnect(host, port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(timeoutMs) || !tcp.Connected)
+                    throw new LobbyError("no answer from the master server " + host + ":" + port);
+                tcp.EndConnect(ar);
+                tcp.ReceiveTimeout = timeoutMs;
+                NetworkStream s = tcp.GetStream();
+                var writer = new StreamWriter(s, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+                var reader = new StreamReader(s, new UTF8Encoding(false));
+                writer.WriteLine("SERVERS");
+                string l;
+                while ((l = reader.ReadLine()) != null && l != "END")
+                {
+                    ServerInfo si = ParseServer(l);
+                    if (si != null) list.Add(si);
+                }
+            }
+            catch (SocketException e) { throw new LobbyError("master server " + host + ":" + port + ": " + e.Message); }
+            catch (IOException e) { throw new LobbyError("master server " + host + ":" + port + ": " + e.Message); }
+        }
+        System.Threading.Tasks.Parallel.ForEach(list, delegate(ServerInfo si) { si.Ping = PingMs(si.Ip, si.Port, 1500); });
+        return list;
+    }
+
+    // milliseconds to open a TCP connection to host:port, or -1 when nothing answers (offline, or a router that doesn't forward it)
+    public static int PingMs(string host, int port, int timeoutMs)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        using (var tcp = new TcpClient())
+        {
+            try
+            {
+                IAsyncResult ar = tcp.BeginConnect(host, port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(timeoutMs) || !tcp.Connected) return -1;
+                tcp.EndConnect(ar);
+                return (int)watch.ElapsedMilliseconds;
+            }
+            catch (SocketException) { return -1; }
+        }
+    }
+
+    // the last column of the server list: what stops a match on that server first (version, reachability), else the ping
+    public static string ServerStatus(ServerInfo s)
+    {
+        if (s.Protocol != Protocol) return "needs another version (protocol " + s.Protocol + ")";
+        return s.Ping < 0 ? "unreachable" : s.Ping + " ms";
     }
 
     // player name as the server accepts it: letters, digits, '_' and '-', up to 16

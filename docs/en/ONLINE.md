@@ -25,7 +25,8 @@ and can be shared freely.
      writes `wotm_server.log` next to the launcher and stops when you close the launcher, so keep the launcher open while you play),
      hosts a lobby on it and shows a box to copy to your friends: the addresses they can type as Server and the lobby code. It also
      asks your router to open the port (UPnP, TCP and UDP; closed again when the launcher closes). If the router refuses, the box says
-     so and which local address to forward the port to.
+     so and which local address to forward the port to. To list it publicly, type the **Master server** address and tick **List
+     publicly as** (with a name) before pressing **Host on this PC** (see "Public server list" below).
    - **Standalone:** run `native\net\build\wotm_server.exe --port 7777` and leave its window open while you play; close it to stop.
    Players create the lobbies themselves from the launcher (up to 16 at a time, `--lobbies N` to change; `--players 2..8` per lobby, 8 by default).
 3. The first time, Windows Firewall asks about `wotm_server.exe`: allow it on private networks (and public if your network is marked
@@ -54,13 +55,18 @@ A master server keeps the list of public servers, so players can find them witho
 - **See the list:** `python tools/net_lobby.py --browse <master address>` prints one row per server: name, address, lobbies (and how
   many are waiting), players and ping. `unreachable` means the server announced but nothing answers on its port from here (often a
   router that doesn't forward it); `needs another version` means it speaks another protocol. Join one with
-  `--server <address> --list`, then `--code`.
+  `--server <address> --list`, then `--code`. In the launcher: section 3.
+- **From the launcher:** **List publicly as** (with a name) next to **Host on this PC** starts the hosted server with `--announce`
+  to the **Master server** field.
 
 ## 3. Everyone: join and play
 
 1. Open the launcher (`tools\launcher\build.bat` builds `WotM_Launcher.exe` in the repo root).
 2. In **Match**, pick **Your monster**. The host also picks the **Stage**.
-3. In **Online**, set Server = `<server address>:7777` and type your name. Then:
+3. In **Online**, set Server = `<server address>:7777` and type your name. To find a public server instead, type the **Master
+   server** address and press **Browse public servers**: one row per server with its name, address, lobbies (waiting), players and
+   ping from your PC (`unreachable`: its port doesn't answer from here; `needs another version`: another protocol). Picking a row
+   sets Server to it and lists its lobbies. Then:
    - **To host a lobby:** type a **Lobby name** (and a **Password** if you want only friends to get in) and press **Host lobby**.
      The server gives the lobby a 4-letter **code** (it appears in the Code box and under the buttons): tell it to your friends.
      You are the lobby's host: you pick the stage (Match group) and the **Wins to end** (0 = endless) and press **Start match**.
