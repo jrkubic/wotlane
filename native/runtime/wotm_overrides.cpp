@@ -106,7 +106,7 @@ std::atomic<bool> g_wotmCheatWin{false};
 // Debug free camera (F5): the window (wotm_freecam.inc) moves the pose, the EE thread puts it into view 0's _cs (freeCamWrite).
 #include "wotm_freecam.h"
 #include "wotm_mouse.hpp"   // mouse for the modern camera (wotm_orbit.inc consumes it, the window accumulates it)
-#include "wotm_detmath.hpp"   // trig with the same bits on every machine, for results that reach guest RAM (wotm_orbit.inc)
+#include "wotm_detmath.hpp"   // trig with the same bits on every machine, for results that reach guest RAM (wotm_orbit.inc, lock-on)
 std::atomic<bool> g_wotmFreeCam{false};
 std::atomic<bool> g_wotmFreeCamPad{false};
 std::mutex g_wotmFreeCamM;
@@ -1718,7 +1718,7 @@ namespace
             return;
         auto screenAngle = [&](const float p[3]) {
             const float dx = p[0] - me[0], dy = p[1] - me[1];
-            return std::atan2(dx * right[0] + dy * right[1], dx * fwd[0] + dy * fwd[1]);
+            return wotm::detmath::atan2f(dx * right[0] + dy * right[1], dx * fwd[0] + dy * fwd[1]);   // picks game state: same bits everywhere
         };
         const float curA = targetPos(rdram, cur, tp) ? screenAngle(tp) : 0.f;
         uint32_t best = 0, wrap = 0;

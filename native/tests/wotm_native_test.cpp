@@ -4,6 +4,7 @@
 #include "wotm_settings.hpp"
 #include "wotm_mods.hpp"
 #include "wotm_detmath.hpp"
+#include "wotm_freecam.h"
 #include "wotm_trig_goldens.hpp"
 
 #include <algorithm>
@@ -361,6 +362,28 @@ TEST(detmath_same_bits_on_every_machine)
     }
     std::printf("  detmath digest %016llx\n", static_cast<unsigned long long>(h));
     CHECK(h == 0xa6c8104174bda8ccull);
+}
+
+// The orbit (and the F5 free camera) write these axes into the game camera's matrix, which then decides culling, LOD and
+// particles: they must come from wotm::detmath, not the system libm, or Windows and the Mac drift apart (stage 2, frame 1003).
+TEST(freecam_axes_use_deterministic_trig)
+{
+    int bad = 0;
+    const std::vector<float> hs = sweep(5000, -7.f, 7.f), ps = sweep(5001, -1.5f, 1.5f);
+    for (size_t i = 0; i < hs.size(); ++i)
+    {
+        WotmFreeCamPose p;
+        p.heading = hs[i];
+        p.pitch = ps[i + 1];
+        float r[3], f[3], u[3];
+        wotmFreeCamAxes(p, r, f, u);
+        const float sh = dm::sinf(p.heading), ch = dm::cosf(p.heading), sp = dm::sinf(p.pitch), cp = dm::cosf(p.pitch);
+        const float want[9] = {ch, -sh, 0.f, cp * sh, cp * ch, sp, -sp * sh, -sp * ch, cp};
+        const float got[9] = {r[0], r[1], r[2], f[0], f[1], f[2], u[0], u[1], u[2]};
+        for (int k = 0; k < 9; ++k)
+            bad += bitsOf(got[k]) != bitsOf(want[k]);
+    }
+    CHECK(bad == 0);
 }
 
 int main()
