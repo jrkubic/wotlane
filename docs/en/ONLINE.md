@@ -41,6 +41,21 @@ and can be shared freely.
    - **Dedicated server:** any always-on PC can run `wotm_server` the same way (the source builds with CMake on Linux too). Friends use
      that machine's address.
 
+### Public server list (master server)
+
+A master server keeps the list of public servers, so players can find them without being told an address.
+
+- **Run the master** (one always-on machine): `wotm_server --master` listens on TCP port **7778** (`--port N` to change). Forward
+  that port (TCP only) the same way as above. It needs no game files.
+- **List a server publicly:** start it with `--announce <master address>[:7778] --name <name>` (the name: letters, digits, `-` and
+  `_`, up to 16). Every 10 s it sends the master its port and its counts (open lobbies, how many wait for players, players); the
+  master lists it under the address the announce came from (behind a router, the public one) and drops it 30 s after the last
+  announce. An unreachable master never holds up the server's matches.
+- **See the list:** `python tools/net_lobby.py --browse <master address>` prints one row per server: name, address, lobbies (and how
+  many are waiting), players and ping. `unreachable` means the server announced but nothing answers on its port from here (often a
+  router that doesn't forward it); `needs another version` means it speaks another protocol. Join one with
+  `--server <address> --list`, then `--code`.
+
 ## 3. Everyone: join and play
 
 1. Open the launcher (`tools\launcher\build.bat` builds `WotM_Launcher.exe` in the repo root).

@@ -2,6 +2,7 @@
 # ABOUTME: Tests for the lobby client (tools/net_lobby.py) against the real wotm_server (native/net/build, tools/build_net.bat).
 # ABOUTME: Run: python tools/test_net_lobby.py
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -132,6 +133,69 @@ class LobbyTest(unittest.TestCase):
             out2, err2 = second.communicate(timeout=10)
         self.assertEqual(second.returncode, 0, err2)
         self.assertIn('WOTM_LOCALPLAYER=2', out2)
+
+
+class BrowseTest(unittest.TestCase):
+    """The public list: a master (wotm_server --master) and servers started with --announce."""
+    port = 7961
+
+    @classmethod
+    def setUpClass(cls):
+        if not SERVER.exists():
+            raise unittest.SkipTest(f'{SERVER} does not exist: run tools\\build_net.bat')
+
+    def start(self, *args):
+        p = subprocess.Popen([str(SERVER), *args], stdout=subprocess.DEVNULL)
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        return p
+
+    def setUp(self):
+        BrowseTest.port += 3
+        self.master = self.port
+        self.start('--master', '--port', str(self.master))
+        time.sleep(0.3)
+
+    def wait_rows(self, count):
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rows = net_lobby.browse('127.0.0.1', self.master)
+            if len(rows) == count:
+                return rows
+            time.sleep(0.1)
+        self.fail(f'the master never listed {count} server(s)')
+
+    def test_browse_lists_announced_servers_with_counts_and_ping(self):
+        self.assertEqual(net_lobby.browse('127.0.0.1', self.master), [])
+        self.start('--port', str(self.port + 1), '--announce', f'127.0.0.1:{self.master}', '--name', 'LanesPC', '--lobbies', '8')
+        [row] = self.wait_rows(1)
+        self.assertEqual({k: row[k] for k in ('ip', 'port', 'protocol', 'open', 'waiting', 'players', 'max', 'name')},
+                         {'ip': '127.0.0.1', 'port': self.port + 1, 'protocol': net_lobby.PROTOCOL, 'open': 0, 'waiting': 0,
+                          'players': 0, 'max': 8, 'name': 'LanesPC'})
+        self.assertIsNotNone(row['ping'])   # the server answers on its port: reachable
+
+    def test_cli_browse_prints_one_row_per_server(self):
+        self.start('--port', str(self.port + 1), '--announce', f'127.0.0.1:{self.master}', '--name', 'Alpha')
+        self.start('--port', str(self.port + 2), '--announce', f'127.0.0.1:{self.master}', '--name', 'Beta')
+        self.wait_rows(2)
+        out = subprocess.run([sys.executable, str(REPO / 'tools' / 'net_lobby.py'), '--browse', f'127.0.0.1:{self.master}'],
+                             capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        lines = out.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 2, out.stdout)
+        self.assertRegex(lines[0], rf'^Alpha +127\.0\.0\.1:{self.port + 1} +0 lobbies \(0 waiting\) +0 players +ping \d+ ms$')
+        self.assertRegex(lines[1], rf'^Beta +127\.0\.0\.1:{self.port + 2} ')
+
+    def test_unreachable_and_other_version_servers_are_marked(self):
+        with socket.create_connection(('127.0.0.1', self.master)) as s:   # a server that announced but no longer answers
+            s.sendall(f'ANNOUNCE {net_lobby.PROTOCOL} 1 0 0 0 16 Gone\n'.encode())
+            self.assertEqual(s.recv(64), b'OK\n')
+        with socket.create_connection(('127.0.0.1', self.master)) as s:
+            s.sendall(b'ANNOUNCE 99 2 0 0 0 16 Future\n')
+            self.assertEqual(s.recv(64), b'OK\n')
+        rows = {r['name']: r for r in self.wait_rows(2)}
+        self.assertIsNone(rows['Gone']['ping'])
+        self.assertEqual(net_lobby.row_text(rows['Gone']).split()[-1], 'unreachable')
+        self.assertIn('needs another version', net_lobby.row_text(rows['Future']))
 
 
 if __name__ == '__main__':
