@@ -100,6 +100,7 @@ class Launcher : Form
     readonly string exeDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
     string IniPath { get { return Path.Combine(exeDir, "WotM_Launcher.ini"); } }
     readonly Label status = new Label();
+    readonly Button play = new Button { Text = "Play", AutoSize = true };   // offline; online play starts with Start match in the Online group
 
     Launcher()
     {
@@ -149,8 +150,9 @@ class Launcher : Form
         foreach (Control c in right.Controls) c.MinimumSize = new Size(wide, 0);
 
         var buttons = new FlowLayoutPanel { AutoSize = true };
-        var play = new Button { Text = "Play", AutoSize = true };
         play.Click += delegate { Play(); };
+        tips.SetToolTip(play, "Starts the game on this PC (offline) and closes the launcher. Online matches start with Start match in the " +
+            "Online group: the game opens by itself, so do not press Play while you are in a lobby.");
         var log = new Button { Text = "Open live.err.log", AutoSize = true };
         log.Click += delegate { OpenLog(); };
         var reset = new Button { Text = "Defaults", AutoSize = true };
@@ -578,6 +580,12 @@ class Launcher : Form
 
         hostLobby.Click += delegate { NetCreate(); };
         joinCode.Click += delegate { NetJoin(netCode.Text.Trim()); };
+        // Enter inside the Online boxes is not Play (the form's AcceptButton): in Code it joins, in Lobby name it hosts, in the list it
+        // joins the selected lobby; in the others it does nothing. An offline Play would close the launcher, and with it the server and lobby.
+        AcceptOn(netCode, joinCode);
+        AcceptOn(netLobbyName, hostLobby);
+        AcceptOn(netList, joinSel);
+        foreach (Control c in new Control[] { netServer, netName, netPassword, netWins }) AcceptOn(c, null);
         joinSel.Click += delegate
         {
             int i = netList.SelectedIndex;
@@ -915,6 +923,13 @@ class Launcher : Form
     }
     static int MonsterId(int k) { return k >= MonsterIds.Length ? RandomId : MonsterIds[k]; }
 
+    // While c has the focus, Enter presses b (or nothing, when null) instead of Play.
+    void AcceptOn(Control c, Button b)
+    {
+        c.Enter += delegate { AcceptButton = b; };
+        c.Leave += delegate { AcceptButton = play; };
+    }
+
     // F1 menu cheats turned on from the start (WOTM_CHEATS=inv,stam|furia,esp,cloak,deus,vencer=N); they apply to the players.
     static readonly string[] CheatKeys = { "inv", "esp", "cloak", "deus" };
     static readonly string[] CheatLabels = { "Invincible", "Special always ready", "CLOAK", "God mode (no damage, no hit reaction)" };
@@ -1084,8 +1099,21 @@ class Launcher : Form
         return false;
     }
 
+    // Play is the offline game and closes the launcher: inside a lobby (or with the server running here) that takes both down, and the
+    // online match never comes through here (Start match -> MATCH line -> PlayOnline). So it asks first.
     void Play()
     {
+        if (lobby != null || hosted != null)
+        {
+            string where = lobbyCode.Length > 0 ? "You are in online lobby " + lobbyCode + "." : "You are connected to an online server.";
+            string how = lobbyOwner ? "The online match starts for everyone when you press Start match in the Online group."
+                                    : "The online match starts when the host presses Start match: the game opens by itself.";
+            string cost = "Play starts an offline game on this PC and closes the launcher" +
+                (hosted != null ? ", which also stops the server you are hosting." : ", which leaves the lobby.");
+            DialogResult r = MessageBox.Show(this, where + " " + how + "\n\n" + cost + "\n\nPlay offline anyway?", "WotM - options",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (r != DialogResult.Yes) return;
+        }
         ProcessStartInfo psi = GameStartInfo(matchOn.Checked);
         if (psi != null) Launch(psi);
     }

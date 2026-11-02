@@ -78,6 +78,8 @@ A master server keeps the list of public servers, so players can find them witho
    player becomes the host (and the lobby takes the new host's settings). An empty lobby closes.
 4. When everyone is in, the host presses **Start match**. The game opens on every PC, loads the stage and waits until everyone has
    arrived; the server measures the ping and picks the input delay. The launcher minimizes and stays in the lobby.
+   **Play** is the offline game: it closes the launcher, which leaves the lobby (and stops the server, if you host it on this PC).
+   While you are in a lobby the launcher asks before starting it. Enter in the Code box joins, in Lobby name it hosts.
 5. In the game: your controller (or keyboard) drives your monster; the screen shows only your view. Top right: ping and input delay in
    frames. A "Waiting for <name>" message means someone's input is late (everyone pauses together, nobody desyncs).
 6. With a wins target, the first to reach it gets the winner's screen: **PLAY AGAIN** (same stage, everyone respawns), **REBUILD LEVEL**

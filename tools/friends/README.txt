@@ -29,6 +29,8 @@ Needs: Windows 10 or 11 (64-bit), a CPU from roughly 2015 or newer (AVX2), a con
    - Password: only if the host set one.
 4. Wait for the host to press "Start match". The game opens by itself and the launcher minimizes. When the match is over (QUIT in the
    game) the launcher comes back, still in the lobby.
+   Do not press "Play": that is the offline game on this PC, and it closes the launcher (you leave the lobby). While you are in a
+   lobby the launcher asks before doing it.
 
 
 3. Host a game
@@ -40,7 +42,8 @@ Needs: Windows 10 or 11 (64-bit), a CPU from roughly 2015 or newer (AVX2), a con
 4. The launcher asks your router to open the port (UPnP). If the box says the router refused:
    - forward port 7777, TCP and UDP, on your router to the local address the box shows, or
    - everyone installs Tailscale (free, tailscale.com), joins the host's network, and uses the host's 100.x.y.z address.
-5. Pick "Wins to end" (0 = endless) and press "Start match" when everyone is in.
+5. Pick "Wins to end" (0 = endless) and press "Start match" when everyone is in. Not "Play": that starts the offline game and
+   closes the launcher, which stops the server and the lobby for everyone (the launcher asks first).
 
 
 Problems
@@ -49,4 +52,6 @@ Problems
 - "game configuration differs from the others": someone changed the mods folder or launcher checkboxes. Use the package as
   it came.
 - "no answer from the server": wrong address, the host's port is not open, or a firewall blocks it.
+- The game opened on its own main menu instead of the match: someone pressed "Play" (offline) instead of "Start match". Close the
+  game, open the launcher again and host or join the lobby again.
 - Anything else: send the host runtime\live.err.log (the host also has wotm_server.log next to the launcher).
