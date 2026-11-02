@@ -69,6 +69,14 @@ namespace wotm_net
         return n > 0;
     }
 
+    // Sending to a peer that already closed raises SIGPIPE on POSIX, which kills the process (wotm_server when a lobby member drops);
+    // with the signal suppressed, send fails and sendLine closes the socket like any other error. Windows has no SIGPIPE.
+#if defined(MSG_NOSIGNAL)
+    constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+    constexpr int kSendFlags = 0;
+#endif
+
     class LineSocket
     {
     public:
@@ -126,7 +134,7 @@ namespace wotm_net
             const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while (sent < s.size())
             {
-                const int n = ::send(s_, s.data() + sent, static_cast<int>(s.size() - sent), 0);
+                const int n = ::send(s_, s.data() + sent, static_cast<int>(s.size() - sent), kSendFlags);
                 if (n > 0)
                     sent += static_cast<size_t>(n);
                 else if (n < 0 && wouldBlock() && std::chrono::steady_clock::now() < until)
@@ -213,6 +221,9 @@ namespace wotm_net
             setNonBlocking(s_);
             int one = 1;
             setsockopt(s_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&one), sizeof one);
+#ifdef SO_NOSIGPIPE   // macOS: no MSG_NOSIGNAL, the socket option does the same
+            setsockopt(s_, SOL_SOCKET, SO_NOSIGPIPE, reinterpret_cast<const char *>(&one), sizeof one);
+#endif
         }
         bool connectedOk()
         {
@@ -250,14 +261,21 @@ namespace wotm_net
             setNonBlocking(s_);
             return true;
         }
-        // a new connection, if there is one
-        bool accept(LineSocket &out)
+        // a new connection, if there is one; `peerIp` (optional) gets the address it came from
+        bool accept(LineSocket &out, std::string *peerIp = nullptr)
         {
             if (s_ == kNoSocket)
                 return false;
-            const SocketHandle c = ::accept(s_, nullptr, nullptr);
+            sockaddr_in from{};
+            socklen_t len = sizeof from;
+            const SocketHandle c = ::accept(s_, reinterpret_cast<sockaddr *>(&from), &len);
             if (c == kNoSocket)
                 return false;
+            if (peerIp)
+            {
+                char buf[INET_ADDRSTRLEN] = {};
+                *peerIp = inet_ntop(AF_INET, &from.sin_addr, buf, sizeof buf) ? buf : "";
+            }
             out = LineSocket(c);
             return true;
         }

@@ -3,6 +3,7 @@
 #include "wotm_lockstep.hpp"
 #include "wotm_monsters.hpp"
 #include "wotm_net_client.hpp"
+#include "wotm_net_master.hpp"
 #include "wotm_net_proto.hpp"
 #include "wotm_net_server.hpp"
 #include "wotm_net_socket.hpp"
@@ -641,6 +642,136 @@ namespace
             }
         CHECK(same);
         CHECK(right);
+    }
+
+    // ---- master server (the list of public servers) ----
+
+    using wotm_net::Master;
+    using wotm_net::MasterConfig;
+
+    struct RunningMaster
+    {
+        Master master;
+        std::atomic<bool> stop{false};
+        std::thread thread;
+        explicit RunningMaster(MasterConfig c) : master(quiet(c))
+        {
+            std::string err;
+            if (!master.start(err))
+                std::printf("  master failed to start: %s\n", err.c_str());
+            thread = std::thread([this] {
+                while (!stop)
+                    master.poll(1);
+            });
+        }
+        ~RunningMaster()
+        {
+            stop = true;
+            thread.join();
+        }
+        static MasterConfig quiet(MasterConfig c)
+        {
+            c.log = false;
+            return c;
+        }
+    };
+
+    // SERVERS: the SERVER lines up to END
+    std::vector<std::string> serverRows(uint16_t masterPort)
+    {
+        LineSocket s;
+        std::vector<std::string> rows;
+        if (!s.connect("127.0.0.1", masterPort, 2000))
+            return rows;
+        s.sendLine("SERVERS");
+        std::string line;
+        while (s.readLine(line, 2000) && line != "END")
+            if (line.rfind("SERVER ", 0) == 0)
+                rows.push_back(line);
+        return rows;
+    }
+
+    // waits up to 3 s for the master's list to be exactly `want`
+    bool listBecomes(uint16_t masterPort, const std::vector<std::string> &want)
+    {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < until)
+        {
+            if (serverRows(masterPort) == want)
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return false;
+    }
+
+    std::string masterReply(uint16_t masterPort, const std::string &line)
+    {
+        LineSocket s;
+        std::string reply;
+        if (s.connect("127.0.0.1", masterPort, 2000) && s.sendLine(line))
+            s.readLine(reply, 2000);
+        return reply;
+    }
+
+    // a server started with announce settings appears in the master's list under the address the master saw, with its port, name and
+    // lobby counts (open lobbies, how many of them are waiting for players, players in lobbies), and the counts follow the server
+    TEST(master_lists_announcing_servers_with_their_lobby_counts)
+    {
+        MasterConfig mc;
+        mc.port = freePort();
+        RunningMaster master(mc);
+        ServerConfig sc = testConfig();
+        sc.announceHost = "127.0.0.1";
+        sc.announcePort = mc.port;
+        sc.name = "LanesPC";
+        sc.announceEveryMs = 50;
+        RunningServer server(sc);
+        const std::string row = "SERVER 127.0.0.1 " + std::to_string(sc.port) + " " + std::to_string(p::kProtocol) + " ";
+        CHECK(listBecomes(mc.port, {row + "0 0 0 16 LanesPC"}));
+
+        LineSocket ana, bia;
+        hello(ana, sc.port);
+        const std::string code = createLobby(ana, "Fun", "Ana", 3);
+        CHECK(listBecomes(mc.port, {row + "1 1 1 16 LanesPC"}));
+        hello(bia, sc.port);
+        bia.sendLine("JOIN " + code + " Bia 1");
+        CHECK(readUntil(bia, "JOINED") == "JOINED " + code);
+        CHECK(listBecomes(mc.port, {row + "1 1 2 16 LanesPC"}));
+        ana.close();
+        bia.close();
+        CHECK(listBecomes(mc.port, {row + "0 0 0 16 LanesPC"}));
+    }
+
+    // a server that stops announcing (closed, crashed, offline) leaves the list once its last announce is older than expireMs; one that
+    // announces again comes back; two servers on the same address are told apart by their port
+    TEST(master_forgets_servers_that_stop_announcing)
+    {
+        MasterConfig mc;
+        mc.port = freePort();
+        mc.expireMs = 300;
+        RunningMaster master(mc);
+        const std::string proto = std::to_string(p::kProtocol);
+        CHECK(masterReply(mc.port, "ANNOUNCE " + proto + " 7777 2 1 3 16 Alpha") == "OK");
+        CHECK(masterReply(mc.port, "ANNOUNCE " + proto + " 7790 0 0 0 4 Beta") == "OK");
+        CHECK(listBecomes(mc.port, {"SERVER 127.0.0.1 7777 " + proto + " 2 1 3 16 Alpha", "SERVER 127.0.0.1 7790 " + proto + " 0 0 0 4 Beta"}));
+        CHECK(listBecomes(mc.port, {}));
+        CHECK(masterReply(mc.port, "ANNOUNCE " + proto + " 7777 1 0 2 16 Alpha") == "OK");
+        CHECK(listBecomes(mc.port, {"SERVER 127.0.0.1 7777 " + proto + " 1 0 2 16 Alpha"}));
+    }
+
+    // malformed announces are refused and listed nowhere; servers of another protocol are listed with it (so a client can show them as
+    // needing another version) instead of disappearing
+    TEST(master_refuses_malformed_announces)
+    {
+        MasterConfig mc;
+        mc.port = freePort();
+        RunningMaster master(mc);
+        CHECK(masterReply(mc.port, "ANNOUNCE 2 7777 1 1").rfind("ERROR", 0) == 0);
+        CHECK(masterReply(mc.port, "ANNOUNCE 2 notaport 1 1 1 16 X").rfind("ERROR", 0) == 0);
+        CHECK(masterReply(mc.port, "ANNOUNCE 2 7777 1 1 1 16 bad!name").rfind("ERROR", 0) == 0);
+        CHECK(masterReply(mc.port, "HELLO").rfind("ERROR", 0) == 0);
+        CHECK(masterReply(mc.port, "ANNOUNCE 9 7777 0 0 0 16 Future") == "OK");
+        CHECK(listBecomes(mc.port, {"SERVER 127.0.0.1 7777 9 0 0 0 16 Future"}));
     }
 
     TEST(match_clients_share_every_frame_of_input)

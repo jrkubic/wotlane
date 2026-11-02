@@ -36,6 +36,13 @@ namespace wotm_net
 
     Server::~Server()
     {
+        {
+            std::lock_guard<std::mutex> lk(announceMu_);
+            stopAnnouncing_ = true;
+        }
+        announceCv_.notify_all();
+        if (announcer_.joinable())
+            announcer_.join();
         if (host_)
             enet_host_destroy(host_);
         if (enetUp_)
@@ -79,6 +86,12 @@ namespace wotm_net
             return false;
         }
         log("listening on port %u (TCP lobby, UDP match), up to %d lobbies of up to %d players", cfg_.port, cfg_.lobbies, cfg_.maxPlayers);
+        if (!cfg_.announceHost.empty())
+        {
+            log("announcing as %s to the master %s:%u every %d s", cfg_.name.c_str(), cfg_.announceHost.c_str(), cfg_.announcePort,
+                cfg_.announceEveryMs / 1000);
+            announcer_ = std::thread([this] { announceLoop(); });
+        }
         return true;
     }
 
@@ -89,6 +102,51 @@ namespace wotm_net
         acceptAndReadLobby();
         serviceEnet(ms);
         tickMatches();
+        updateCounts();
+    }
+
+    // ---- public listing (master server) ----
+
+    void Server::updateCounts()
+    {
+        int open = 0, waiting = 0, players = 0;
+        for (const Lobby &l : lobbies_)
+        {
+            if (!l.open)
+                continue;
+            ++open;
+            waiting += l.match ? 0 : 1;
+            players += static_cast<int>(l.match ? l.match->slots.size() : l.members.size());
+        }
+        open_ = open, waiting_ = waiting, players_ = players;
+    }
+
+    // On its own thread, so a slow or unreachable master never holds up the lobby or a match. A failed announce is retried at the
+    // next interval (the master keeps a server listed for 3 intervals).
+    void Server::announceLoop()
+    {
+        const std::string name = proto::cleanName(cfg_.name).empty() ? "wotlane" : proto::cleanName(cfg_.name);
+        bool warned = false;
+        std::unique_lock<std::mutex> lk(announceMu_);
+        while (!stopAnnouncing_)
+        {
+            lk.unlock();
+            LineSocket s;
+            std::string reply;
+            const bool ok = s.connect(cfg_.announceHost, cfg_.announcePort, 2000) &&
+                            s.sendLine("ANNOUNCE " + std::to_string(proto::kProtocol) + " " + std::to_string(cfg_.port) + " " +
+                                       std::to_string(open_.load()) + " " + std::to_string(waiting_.load()) + " " +
+                                       std::to_string(players_.load()) + " " + std::to_string(cfg_.lobbies) + " " + name) &&
+                            s.readLine(reply, 2000) && reply == "OK";
+            if (ok == warned)   // log the first failure and the recovery, not every attempt
+            {
+                warned = !ok;
+                log(ok ? "master %s:%u reachable again" : "could not announce to the master %s:%u (%s)", cfg_.announceHost.c_str(),
+                    cfg_.announcePort, ok ? "" : (reply.empty() ? "no answer" : reply.c_str()));
+            }
+            lk.lock();
+            announceCv_.wait_for(lk, std::chrono::milliseconds(cfg_.announceEveryMs), [this] { return stopAnnouncing_; });
+        }
     }
 
     // ---- lobby ----

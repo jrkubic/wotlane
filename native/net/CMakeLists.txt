@@ -19,7 +19,7 @@ endif()
 
 find_package(Threads REQUIRED)   # the client runs on a thread; on Linux g++ needs -pthread
 
-add_library(wotm_net STATIC wotm_net_client.cpp wotm_net_server.cpp)
+add_library(wotm_net STATIC wotm_net_client.cpp wotm_net_master.cpp wotm_net_server.cpp)
 target_include_directories(wotm_net PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${enet_SOURCE_DIR}/include")
 target_link_libraries(wotm_net PUBLIC enet Threads::Threads)
 if(WIN32)
