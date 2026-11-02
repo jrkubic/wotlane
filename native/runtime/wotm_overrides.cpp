@@ -993,6 +993,19 @@ namespace
                 if (vblanks > 0u && vblanks < 16u && static_cast<int32_t>(vblanks) > measured)
                     WRITE32(kFieldCounter, static_cast<uint32_t>(start + static_cast<int32_t>(vblanks)));
             }
+#if !PS2X_HW_EMU
+            // Fixed step n > 1 (the 30 Hz mode of 3+ player network matches): frame() makes the frame exactly n fields long, which also
+            // satisfies the game's own wait below, so without this a fast PC ran each 2-field frame in one vsync, at up to twice the
+            // speed. The wait is in place on the vblank clock, not through the game's sceGsSyncV, whose fixed-step parity counts calls
+            // and must be the same on every PC.
+            if (wotm_sync::g_fixedStep > 1 && g_frameStartValid)
+            {
+                EeScheduler &ee = runtime->eeScheduler();
+                const uint64_t until = g_frameStartVsync + static_cast<uint64_t>(wotm_sync::g_fixedStep);
+                while (ee.currentVSyncTick() < until && !runtime->isStopRequested())
+                    ee.waitVSyncHere(ee.currentVSyncTick(), 0);
+            }
+#endif
             wotm_sync::frame(rdram, kFieldCounter, kFieldCounterAtStart, kFieldsForAverage);   // fixed step and state hash (WOTM_FIXEDSTEP, WOTM_STATEHASH)
         }
         g_origWaitMinRate(rdram, ctx, runtime);
