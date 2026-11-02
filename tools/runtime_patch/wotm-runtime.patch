@@ -197,7 +197,7 @@ index 0000000..9095b52
 +    }
 +}
 diff --git a/ps2xRuntime/CMakeLists.txt b/ps2xRuntime/CMakeLists.txt
-index 589d768..8143120 100644
+index 589d768..c5c3193 100644
 --- a/ps2xRuntime/CMakeLists.txt
 +++ b/ps2xRuntime/CMakeLists.txt
 @@ -393,6 +393,7 @@ add_library(ps2_runtime STATIC
@@ -317,7 +317,7 @@ index 589d768..8143120 100644
  
      if(WIN32 AND NOT PS2X_SHOW_WINDOWS_CONSOLE)
          if(MSVC)
-@@ -608,3 +645,92 @@ endif()
+@@ -608,3 +645,94 @@ endif()
  install(DIRECTORY include/
      DESTINATION include
  )
@@ -343,6 +343,7 @@ index 589d768..8143120 100644
 +target_sources(ps2_runtime PRIVATE
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_overrides.cpp"
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_vu0_native.cpp"
++    "${WOTM_NATIVE_DIR}/wotm_detmath.cpp"
 +)
 +# WotM, macOS/Linux: crash stack trace and the macOS menu bar/Dock in fullscreen (wotm_posix.cpp; system headers that clash with raylib)
 +if(NOT WIN32)
@@ -352,9 +353,10 @@ index 589d768..8143120 100644
 +# Native VU0 and the VU1 interpreter: VU arithmetic (madd with two roundings, toward zero) does not survive /fp:fast
 +# (contraction into FMA; on the VU1 Ultra-V's rope picked up a noisy tangent where its points coincide). The runtime hooks
 +# (wotm_overrides.cpp and its .inc files) too: their float results reach guest RAM (the orbit camera's pose), so they must give
-+# the same bits on every compiler and CPU, or two PCs in a network match desync
++# the same bits on every compiler and CPU, or two PCs in a network match desync. wotm_detmath.cpp is the trig they use for it
 +set(WOTM_VU_STRICT_SOURCES
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_overrides.cpp"
++    "${WOTM_NATIVE_DIR}/wotm_detmath.cpp"
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_vu0_native.cpp"
 +    "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/ps2_vu1_core.cpp"
 +    "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/ps2_vu1_upper.cpp"
