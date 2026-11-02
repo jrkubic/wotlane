@@ -106,6 +106,7 @@ std::atomic<bool> g_wotmCheatWin{false};
 // Debug free camera (F5): the window (wotm_freecam.inc) moves the pose, the EE thread puts it into view 0's _cs (freeCamWrite).
 #include "wotm_freecam.h"
 #include "wotm_mouse.hpp"   // mouse for the modern camera (wotm_orbit.inc consumes it, the window accumulates it)
+#include "wotm_detmath.hpp"   // trig with the same bits on every machine, for results that reach guest RAM (wotm_orbit.inc)
 std::atomic<bool> g_wotmFreeCam{false};
 std::atomic<bool> g_wotmFreeCamPad{false};
 std::mutex g_wotmFreeCamM;
