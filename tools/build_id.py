@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-# ABOUTME: wotm.exe build identity for the netcode: hash of what decides the generated code (native/, runtime patches, PS2Recomp
-# ABOUTME: commit, recompiled game, exact compiler version and flags). Writes wotm.buildid next to the exe; the server requires a match.
+# ABOUTME: wotm.exe build identity for the netcode: hash of what decides the simulation (native/, runtime patches, PS2Recomp
+# ABOUTME: commit, recompiled game, build folder). Writes wotm.buildid next to the exe; the server requires a match.
 """Usage: python tools/build_id.py [--runtime <folder>] [--build build_dev] [--write]
 
-The game is compiled with /fp:fast /arch:AVX2: two PCs only simulate identically with the same code and the same compiler. Paths,
+Two machines only simulate identically with the same code. The compiler is left out: game code builds with strict FP, so MSVC on
+Windows and clang on the Mac produce the same states, and the server's per-frame state hash stops any match where they don't. Paths,
 dates and file line endings (CRLF or LF) are left out, so two clones in different folders with the same code give the same id.
 Called by tools/build_runtime.ps1 after every build; wotm.exe reads wotm.buildid and sends it to the server (wotm_sync.inc).
 """
 import argparse
 import hashlib
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,41 +55,6 @@ def recomp_digest(retail, runtime):
     return digest
 
 
-def compiler(build_dir):
-    """MSVC version (cl.exe's folder) and the flags from the build's CMakeCache.txt."""
-    out = {'version': 'unknown', 'type': '', 'flags': ''}
-    cache = build_dir / 'CMakeCache.txt'
-    if cache.exists():
-        for line in cache.read_text(errors='replace').splitlines():
-            if line.startswith('CMAKE_CXX_COMPILER:'):
-                m = re.search(r'/MSVC/([0-9.]+)/', line.replace('\\', '/'))
-                out['version'] = m.group(1) if m else line.split('=', 1)[1]
-            elif line.startswith('CMAKE_BUILD_TYPE:'):
-                out['type'] = line.split('=', 1)[1]
-            elif line.startswith('CMAKE_CXX_FLAGS_RELEASE:'):
-                out['flags'] = line.split('=', 1)[1]
-    if '/MSVC/' not in out['version'] and not re.fullmatch(r'[0-9.]+', out['version']):
-        clang = cmake_compiler(build_dir)   # gcc/clang: the cache only has the compiler's path
-        if clang:
-            out['version'] = clang
-    return out
-
-
-def cmake_compiler(build_dir):
-    """'<id> <version> <cpu>' from the files CMake writes under CMakeFiles/<cmake version>/ (e.g. 'AppleClang 17.0.0.17000013 arm64'),
-    or '' when they're missing."""
-    def value(path, key):
-        m = re.search(r'set\(' + key + r' "([^"]*)"\)', path.read_text(errors='replace')) if path.exists() else None
-        return m.group(1) if m else ''
-    for d in sorted((build_dir / 'CMakeFiles').glob('*/'), reverse=True):
-        cxx = d / 'CMakeCXXCompiler.cmake'
-        if cxx.exists():
-            parts = [value(cxx, 'CMAKE_CXX_COMPILER_ID'), value(cxx, 'CMAKE_CXX_COMPILER_VERSION'),
-                     value(d / 'CMakeSystem.cmake', 'CMAKE_SYSTEM_PROCESSOR')]
-            return ' '.join(p for p in parts if p)
-    return ''
-
-
 def ps2recomp_head(runtime):
     try:
         return subprocess.run(['git', '-C', str(runtime / 'PS2Recomp'), 'rev-parse', 'HEAD'], capture_output=True, text=True,
@@ -104,7 +69,6 @@ def compute(repo, runtime, build, ps2recomp_commit=None):
         'patches': tree_digest(repo / 'tools' / 'runtime_patch'),
         'ps2recomp': ps2recomp_commit or ps2recomp_head(runtime),
         'recomp': recomp_digest(repo / 'recomp' / 'retail', runtime),
-        'compiler': compiler(runtime / build),
         'build': build,   # build_dev (no LTCG) and build (LTCG) generate different code
     }
     return 'wl-' + hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]

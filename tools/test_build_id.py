@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ABOUTME: Tests for tools/build_id.py (the build identity the netcode compares): the same input in different folders gives the same id,
-# ABOUTME: and any change of code, compiler or flags changes it. Run: python tools/test_build_id.py
+# ABOUTME: any change of code changes it, and the compiler doesn't. Run: python tools/test_build_id.py
 import sys
 import tempfile
 import unittest
@@ -50,12 +50,19 @@ class BuildIdTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             self.assertEqual(self.compute(*make_tree(Path(a))), self.compute(*make_tree(Path(b), crlf=True)))
 
-    def test_code_compiler_and_commit_changes_change_the_id(self):
-        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as c:
+    def test_code_and_commit_changes_change_the_id(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             base = self.compute(*make_tree(Path(a)))
             self.assertNotEqual(base, self.compute(*make_tree(Path(b), native_text='int b;\n')))
-            self.assertNotEqual(base, self.compute(*make_tree(Path(c), ver='14.44.35208')))
             self.assertNotEqual(base, self.compute(*make_tree(Path(a)), commit='0000000'))
+
+    def test_the_compiler_does_not_change_the_id(self):
+        # game code builds with strict FP, so Windows (MSVC) and the Mac (AppleClang, arm64) simulate alike and must be able to
+        # play together; if two compilers ever disagree, the server's per-frame state hash stops the match
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as c:
+            msvc = self.compute(*make_tree(Path(a)))
+            self.assertEqual(msvc, self.compute(*make_tree(Path(b), ver='14.44.35208')))
+            self.assertEqual(msvc, self.compute(*make_clang_tree(Path(c), '17.0.0.17000013', 'arm64')))
 
     def test_build_output_is_ignored(self):
         with tempfile.TemporaryDirectory() as a:
@@ -81,23 +88,6 @@ class BuildIdTest(unittest.TestCase):
             for rel in sorted(('README.md', 'ps2recomp.patch', 'a-c.txt', 'a/b.txt')):
                 h.update(rel.encode() + b'\0' + build_id.text_digest(root / rel).encode() + b'\n')
             self.assertEqual(build_id.tree_digest(root), h.hexdigest())
-
-    def test_compiler_version_comes_from_the_cmake_cache(self):
-        with tempfile.TemporaryDirectory() as a:
-            _, runtime = make_tree(Path(a))
-            self.assertEqual(build_id.compiler(runtime / 'build_dev')['version'], '14.44.35207')
-
-    def test_clang_version_and_cpu_come_from_cmake_files(self):
-        # gcc/clang: the cache only has the compiler's path (the same for every version); CMake's compiler and system files say
-        # which compiler and which CPU, and both decide the generated code
-        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as c:
-            ids = []
-            for root, ver, cpu in ((a, '17.0.0.17000013', 'arm64'), (b, '17.0.0.17000014', 'arm64'), (c, '17.0.0.17000013', 'x86_64')):
-                repo, runtime = make_clang_tree(Path(root), ver, cpu)
-                ids.append(self.compute(repo, runtime))
-                if root == a:
-                    self.assertEqual(build_id.compiler(runtime / 'build_dev')['version'], 'AppleClang 17.0.0.17000013 arm64')
-            self.assertEqual(len(set(ids)), 3)
 
 
 def make_clang_tree(root, ver, cpu):

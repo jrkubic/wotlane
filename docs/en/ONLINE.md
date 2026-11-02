@@ -9,13 +9,13 @@ and can be shared freely.
 
 1. Install what `tools\setup_runtime.ps1` needs: git, Python 3, CMake 3.24+, and Visual Studio 2022 Build Tools with the C++ workload
    **plus the component "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44-17.14)"** (Visual Studio Installer, Modify, Individual
-   components). Online play requires everyone to compile with the same compiler version, so the setup insists on 14.44.
+   components). Online play is tested with 14.44, so the setup insists on it.
 2. Clone the fork on the same commit as your friends:
    `git clone -b wotlane/4p https://github.com/sightama/wotlane.git` (agree on the commit: `git log -1 --format=%h`).
 3. Put your own ISO in `ISO\` and run `powershell -ExecutionPolicy Bypass -File tools\setup_runtime.ps1` (about 10 minutes the first
    time). Later updates: `git pull`, then `build_runtime.bat`.
 4. Compare build ids in your chat: `python tools\build_id.py`. Everyone must print the same `wl-...` id. The server refuses players with
-   a different build (different commit, compiler or flags), because the simulation would drift apart.
+   a different build (different commit or runtime patch), because the simulation would drift apart.
 
 ## 2. The host: run the server
 
@@ -97,7 +97,7 @@ to the console) and starts once that many players are in; `--code <code> --name 
 
 ## Troubleshooting
 
-- "build diferente": someone is on another commit or compiler. Compare `python tools\build_id.py`; `git pull` and rebuild.
+- "different build": someone is on another commit. Compare `python tools\build_id.py`; `git pull` and rebuild.
 - "configuracao do jogo diferente": someone launched with different game options (enemy bars, cheats, `WOTM_RATEMIN`, wins target)
   or a different set of mods in `mods\`. Use the same launcher checkboxes in the Mods group and copy the same mod folders (folders whose
   name starts with `_` are off and do not count).

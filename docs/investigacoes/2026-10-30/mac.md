@@ -44,7 +44,6 @@ registers). The build-id parts (native, patches, ps2recomp, recomp) are equal on
 ## Still open
 
 - Prove more content: recorded input replayed on both machines (stage 2), 4 and 8 monsters, other stages.
-- Build id: Windows and Mac only share one if the id drops the compiler. Lane's decision.
 - Then a clean online match Mac x Windows (the first one, with a borrowed build id, stopped on a desync at frame 31, before the
   pad and VU fixes).
 - On Windows, the `WOTM_STATEDUMP=0` dump doesn't match the frame-0 hash record (frame 1 does); `run_live.ps1` always exits 0;
