@@ -3394,10 +3394,57 @@ index b1bb6d8..837a5e2 100644
  
      static void seedGsDrawEnv1(GsDrawEnv1Mem &env,
 diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp b/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
-index d467c4b..c181444 100644
+index d467c4b..3eb746f 100644
 --- a/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
 +++ b/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
-@@ -1080,14 +1080,20 @@ namespace ps2_stubs
+@@ -2,6 +2,8 @@
+ #include "LibC.h"
+ #include "ps2_log.h"
+ 
++#include <cstdint>
++
+ namespace ps2_stubs
+ {
+     namespace
+@@ -336,6 +338,19 @@ namespace ps2_stubs
+         setReturnU32(ctx, (uint32_t)len);
+     }
+ 
++    // newlib's result: the difference of the first differing bytes, compared unsigned, within n bytes. The host strcmp/strncmp
++    // is not used because its value differs by C library (Microsoft's returns -1/0/1), and the game gets it in $v0.
++    static int compareGuestStrings(const char *a, const char *b, size_t n)
++    {
++        for (size_t i = 0; i < n; ++i)
++        {
++            const unsigned char x = static_cast<unsigned char>(a[i]), y = static_cast<unsigned char>(b[i]);
++            if (x != y || x == 0)
++                return int(x) - int(y);
++        }
++        return 0;
++    }
++
+     void strcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         uint32_t str1Addr = getRegU32(ctx, 4); // $a0
+@@ -347,7 +362,7 @@ namespace ps2_stubs
+ 
+         if (hostStr1 && hostStr2)
+         {
+-            result = ::strcmp(hostStr1, hostStr2);
++            result = compareGuestStrings(hostStr1, hostStr2, SIZE_MAX);
+         }
+         else
+         {
+@@ -375,7 +390,7 @@ namespace ps2_stubs
+ 
+         if (hostStr1 && hostStr2)
+         {
+-            result = ::strncmp(hostStr1, hostStr2, size);
++            result = compareGuestStrings(hostStr1, hostStr2, size);
+         }
+         else
+         {
+@@ -1080,14 +1095,20 @@ namespace ps2_stubs
          setReturnU32(ctx, 0u);
      }
  
@@ -6312,6 +6359,50 @@ index 07f9b7a..5aa1cb2 100644
 +                t.Equals(asked[i], i, "controller index should be port + 2 * slot");
 +        });
      });
+ }
+diff --git a/ps2xTest/src/ps2_runtime_io_tests.cpp b/ps2xTest/src/ps2_runtime_io_tests.cpp
+index 4f979be..03042b7 100644
+--- a/ps2xTest/src/ps2_runtime_io_tests.cpp
++++ b/ps2xTest/src/ps2_runtime_io_tests.cpp
+@@ -743,4 +743,39 @@ void register_ps2_runtime_io_tests()
+                      "sceCdRead should copy sector data from the configured image");
+         });
+     });
++
++    // WotM: the game's strcmp/strncmp return what newlib's do, the difference of the first differing bytes (unsigned), on every
++    // host: Microsoft's C library returns -1/0/1 and Apple's the byte difference, and that value stays in $v0 where a network
++    // match's call trace (WOTM_CALLTRACE) sees it
++    MiniTest::Case("WotmStringCompare", [](TestCase &tc)
++    {
++        auto compare = [](auto stub, const char *a, const char *b, uint32_t n)
++        {
++            std::vector<uint8_t> rdram(PS2_RAM_SIZE, 0);
++            R5900Context ctx{};
++            writeGuestString(rdram.data(), GUEST_STRING_AREA_START, a);
++            writeGuestString(rdram.data(), GUEST_STRING_AREA_START + 0x100, b);
++            setRegU32(ctx, 4, GUEST_STRING_AREA_START);
++            setRegU32(ctx, 5, GUEST_STRING_AREA_START + 0x100);
++            setRegU32(ctx, 6, n);
++            stub(rdram.data(), &ctx, nullptr);
++            return getRegS32(&ctx, 2);
++        };
++
++        tc.Run("strcmp returns the byte difference", [&](TestCase &t)
++        {
++            t.Equals(compare(ps2_stubs::strcmp, "abc", "abc", 0u), 0, "equal strings give 0");
++            t.Equals(compare(ps2_stubs::strcmp, "abe", "abc", 0u), 2, "'e' - 'c' = 2");
++            t.Equals(compare(ps2_stubs::strcmp, "ab", "abz", 0u), -int('z'), "a shorter string compares its 0 terminator");
++            t.Equals(compare(ps2_stubs::strcmp, "\xF0", "a", 0u), 0xF0 - int('a'), "bytes compare unsigned");
++        });
++
++        tc.Run("strncmp returns the byte difference within n", [&](TestCase &t)
++        {
++            t.Equals(compare(ps2_stubs::strncmp, "abcX", "abcY", 3u), 0, "only the first n bytes count");
++            t.Equals(compare(ps2_stubs::strncmp, "abcX", "abcY", 4u), int('X') - int('Y'), "'X' - 'Y' = -1");
++            t.Equals(compare(ps2_stubs::strncmp, "cdrom0:", "host0:", 5u), int('c') - int('h'), "'c' - 'h' = -5");
++            t.Equals(compare(ps2_stubs::strncmp, "abc", "xyz", 0u), 0, "n = 0 compares nothing");
++        });
++    });
  }
 diff --git a/ps2xTest/src/ps2_vu_tests.cpp b/ps2xTest/src/ps2_vu_tests.cpp
 index b96befe..761fc35 100644
