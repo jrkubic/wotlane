@@ -526,6 +526,11 @@ namespace wotm_sync
         std::snprintf(mods, sizeof mods, "%016llx", static_cast<unsigned long long>(wotm::mods::digest(wotm::mods::Registry::get().dir())));
         all += std::string("mods=") + mods + ";";
         std::fprintf(stderr, "[net] mods: %s\n", mods);
+        // gameplay modifiers (the lobby's WOTM_MODIFIERS) in canonical order: "turbo,jump" and "jump,turbo" are the same match
+        int modBits = 0;
+        const char *modList = std::getenv("WOTM_MODIFIERS");
+        wotm::modifiers::parse(modList ? modList : "", modBits);
+        all += "modifiers=" + wotm::modifiers::format(modBits) + ";";
         all.resize((all.size() + 7u) & ~size_t(7), '\0');   // hashBytes reads 8-byte words
         char out[17];
         std::snprintf(out, sizeof out, "%016llx", static_cast<unsigned long long>(hashBytes(reinterpret_cast<const uint8_t *>(all.data()), all.size())));

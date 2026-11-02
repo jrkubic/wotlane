@@ -227,6 +227,35 @@ namespace
         CHECK(md::scaledClock(5u, 0xFFFFFFF0u, 0u, 2u) == 42u);   // the host clock wrapped around
     }
 
+    // Modifier options (wotm_settings.hpp): three on/off keys offline; WOTM_MODIFIERS sets all three; in a network match the lobby's
+    // list (g_netMods) is forced and the player's own values stay stored
+    TEST(modifier_settings_and_net_lock)
+    {
+        namespace st = wotm::settings;
+        namespace md = wotm::modifiers;
+        st::g_netProfile.store(false);
+        st::g_val[st::SuperJump].store(1);
+        st::g_val[st::FastMonsters].store(0);
+        st::g_val[st::Turbo].store(0);
+        CHECK(st::modifiers() == md::Jump && !st::forced(st::SuperJump));
+        CHECK(st::applyModifierList("fast,turbo"));
+        CHECK(st::modifiers() == (md::Fast | md::Turbo));
+        CHECK(!st::applyModifierList("moon") && st::modifiers() == (md::Fast | md::Turbo));
+        st::g_val[st::SuperJump].store(1);
+        st::g_netProfile.store(true);
+        st::g_netMods.store(md::Turbo);
+        CHECK(st::modifiers() == md::Turbo);
+        CHECK(st::forced(st::SuperJump) && st::forced(st::Turbo) && st::get(st::SuperJump) == 0 && st::get(st::Turbo) == 1);
+        CHECK(st::g_val[st::SuperJump].load() == 1);   // the player's own choice is still stored
+        st::g_netProfile.store(false);
+        st::g_netMods.store(0);
+        CHECK(st::modifiers() == (md::Jump | md::Fast | md::Turbo));
+        int v = -1;
+        CHECK(st::parse(st::Turbo, "1", v) && v == 1 && st::parse(st::Turbo, "0", v) && v == 0);
+        CHECK(std::string(st::kEnv[st::SuperJump]) == "WOTM_SUPERJUMP" && std::string(st::kEnv[st::Turbo]) == "WOTM_TURBO");
+        st::g_val[st::SuperJump].store(0), st::g_val[st::FastMonsters].store(0), st::g_val[st::Turbo].store(0);
+    }
+
     // Network match profile (wotm_settings.hpp): settings that change game state take the fixed profile on every PC, the
     // player's own values are kept and come back outside network play; video settings stay free
     TEST(netplay_profile_forces_gameplay_settings_only)
