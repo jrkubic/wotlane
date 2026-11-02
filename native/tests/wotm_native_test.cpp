@@ -6,6 +6,7 @@
 #include "wotm_detmath.hpp"
 #include "wotm_freecam.h"
 #include "wotm_trig_goldens.hpp"
+#include "net/wotm_modifiers.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -204,6 +205,26 @@ namespace
         const float M[16] = {2048.f, -384.f, 0.f, 0.f, 2048.f, 0.f, -180.48f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f};
         ip::Focus g;
         CHECK(ip::focusOf(M, g) && near(g.fh, 384.f, 1e-3f) && near(g.fv, 180.48f, 1e-3f));
+    }
+
+    // Gameplay modifiers (net/wotm_modifiers.hpp): the name list the lobby, the launcher and WOTM_MODIFIERS use, in canonical order;
+    // turbo's frame shape (2 fields per frame, paced at 1 vsync) and the offline turbo clock
+    TEST(modifier_list_parse_and_format)
+    {
+        namespace md = wotm::modifiers;
+        int bits = -1;
+        CHECK(md::parse("turbo,jump", bits) && bits == (md::Jump | md::Turbo));
+        CHECK(md::format(bits) == "jump,turbo");
+        CHECK(md::parse("", bits) && bits == 0 && md::format(0).empty());
+        CHECK(md::parse("fast, fast", bits) && bits == md::Fast);
+        CHECK(md::parse("jump,fast,turbo", bits) && md::format(bits) == "jump,fast,turbo");
+        bits = 7;
+        CHECK(!md::parse("moon", bits) && bits == 7);
+        CHECK(!md::parse("jump,", bits));
+        CHECK(md::fieldsPerFrame(1, md::Turbo) == 2 && md::fieldsPerFrame(2, 0) == 2 && md::fieldsPerFrame(1, md::Jump) == 1);
+        CHECK(md::vsyncsPerFrame(2, md::Turbo) == 1 && md::vsyncsPerFrame(2, 0) == 2 && md::vsyncsPerFrame(1, md::Turbo) == 1);
+        CHECK(md::scaledClock(110u, 100u, 500u, 2u) == 520u);
+        CHECK(md::scaledClock(5u, 0xFFFFFFF0u, 0u, 2u) == 42u);   // the host clock wrapped around
     }
 
     // Network match profile (wotm_settings.hpp): settings that change game state take the fixed profile on every PC, the
