@@ -1141,6 +1141,55 @@ index f247ff9..5568b05 100644
  
      mutable std::mutex m_snapshotMutex;
      EeKernelSnapshot m_snapshot;
+diff --git a/ps2xRuntime/include/runtime/ee_vblank_clock.h b/ps2xRuntime/include/runtime/ee_vblank_clock.h
+new file mode 100644
+index 0000000..5e0e5cd
+--- /dev/null
++++ b/ps2xRuntime/include/runtime/ee_vblank_clock.h
+@@ -0,0 +1,43 @@
++#pragma once
++// WoTM: the vblank clock of the game executable's scheduler (EeSchedulerGame.cpp): a fixed 16.667 ms grid on the host, kept by a
++// host thread that counts the vblanks that fell due for the EE to apply. Header-only so ps2xTest can test it without the game
++// scheduler (which only links into wotm). The caller holds the scheduler's event mutex around every call.
++
++#include <chrono>
++#include <cstdint>
++
++struct EeVBlankClock
++{
++    using Clock = std::chrono::steady_clock;
++    static constexpr std::chrono::microseconds kPeriod{16667};
++
++    Clock::time_point next{};   // when the next vblank falls due
++    uint32_t due = 0;           // vblanks that fell due and the EE has not applied yet
++
++    void start(Clock::time_point now)
++    {
++        due = 0;
++        next = now + kPeriod;
++    }
++
++    // Timer thread, woken at or after `next`: counts one vblank and moves the grid on. After a stall of more than 4 vblanks the grid
++    // restarts from now, so the EE applies one vblank instead of a burst of late ones. False when woken early.
++    bool fire(Clock::time_point now)
++    {
++        if (now < next)
++            return false;
++        if (now - next > 4 * kPeriod)
++            next = now;
++        next += kPeriod;
++        ++due;
++        return true;
++    }
++
++    // The EE comes back from a host-side pause (network wait, photo mode): the vblanks counted meanwhile don't all fire on resume.
++    // `next` stays where it is: fire() kept the grid running during the pause, so it is already within one period of now; adding
++    // the pause would leave the game waiting that long again (in a network match the two PCs then take turns waiting for each other).
++    void resume()
++    {
++        due = 0;
++    }
++};
 diff --git a/ps2xRuntime/include/runtime/ps2_address.h b/ps2xRuntime/include/runtime/ps2_address.h
 index f7689e0..2376b51 100644
 --- a/ps2xRuntime/include/runtime/ps2_address.h
@@ -1762,10 +1811,10 @@ index c5e31c4..e454f4e 100644
  bool EeScheduler::hasReadyAtOrAbovePriority(int priority) const
 diff --git a/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp b/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp
 new file mode 100644
-index 0000000..f2357f5
+index 0000000..a81f965
 --- /dev/null
 +++ b/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp
-@@ -0,0 +1,1339 @@
+@@ -0,0 +1,1334 @@
 +// WoTM (step 10 of docs/passos/FRONTEIRA.md in the WoTM repo): EeScheduler for the game executable (wotm), replacing EeScheduler.cpp.
 +// Measured in step 8: WotM uses a single thread (the main one), no INTC handler, one DMAC handler (hierSetDmaIntHandler,
 +// channel 1) and the vblank (sceGsSyncV); no semaphore, event flag, sleep or alarm in use. So there is no ready queue, time
@@ -1781,6 +1830,7 @@ index 0000000..f2357f5
 +//  - other threads: CreateThread registers them, StartThread fails with a warning (there is no second flow of execution).
 +// ps2EntryRunner keeps the full EeScheduler.cpp.
 +#include "runtime/ee_scheduler.h"
++#include "runtime/ee_vblank_clock.h"
 +
 +#include "ps2_log.h"
 +#include "ps2_runtime_macros.h"
@@ -1832,7 +1882,7 @@ index 0000000..f2357f5
 +    constexpr uint32_t WEF_CLEAR_ALL = 0x20u;
 +
 +    using Clock = std::chrono::steady_clock;
-+    constexpr auto kVBlankPeriod = std::chrono::microseconds(16667);
++    constexpr auto kVBlankPeriod = EeVBlankClock::kPeriod;
 +    constexpr size_t kMaxInvocationDepth = 48u;   // main.invocations reserves 64: each level's context never moves
 +
 +    struct ExternalWait
@@ -1853,8 +1903,7 @@ index 0000000..f2357f5
 +        std::thread timer;
 +        std::condition_variable timerCv;
 +        // guarded by m_eventMutex
-+        uint32_t vblankDue = 0;
-+        Clock::time_point next{};
++        EeVBlankClock vblank;
 +        bool waiting = false;
 +        bool stallOpen = false;
 +        Clock::time_point stallStart{};
@@ -1952,7 +2001,7 @@ index 0000000..f2357f5
 +        std::lock_guard lock(m_eventMutex);
 +        m_events.clear();
 +        m_pendingInvocations.clear();
-+        G.vblankDue = 0;
++        G.vblank.due = 0;
 +        G.waiting = false;
 +        G.stallOpen = false;
 +    }
@@ -1991,8 +2040,7 @@ index 0000000..f2357f5
 +    m_running.store(true, std::memory_order_release);
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        G.vblankDue = 0;
-+        G.next = Clock::now() + kVBlankPeriod;
++        G.vblank.start(Clock::now());
 +    }
 +    // Vblank clock: a fixed grid on the host. After a stall of more than 4 vblanks the grid restarts from now, and the EE applies
 +    // just one (wotmService) instead of firing all the late ones at once.
@@ -2001,19 +2049,15 @@ index 0000000..f2357f5
 +        std::unique_lock lock(m_eventMutex);
 +        while (!m_stopRequested.load(std::memory_order_acquire))
 +        {
-+            const Clock::time_point target = G.next;
++            const Clock::time_point target = G.vblank.next;
 +            G.timerCv.wait_until(lock, target, [this]() { return m_stopRequested.load(std::memory_order_acquire); });
 +            if (m_stopRequested.load(std::memory_order_acquire))
 +                break;
 +            const Clock::time_point now = Clock::now();
-+            if (now < G.next)   // woke early, or the pause (shiftHostDeadlines) pushed the deadline back
++            if (!G.vblank.fire(now))   // woke early
 +                continue;
-+            if (now - G.next > 4 * kVBlankPeriod)
-+                G.next = now;
-+            G.next += kVBlankPeriod;
-+            ++G.vblankDue;
 +            // WOTM_FIELDLOG: three vblanks without the EE reaching a checkpoint or waiting = game thread stuck in some call
-+            if (g_wotmCycleProf && !G.waiting && G.vblankDue >= 3u && !G.stallOpen)
++            if (g_wotmCycleProf && !G.waiting && G.vblank.due >= 3u && !G.stallOpen)
 +            {
 +                G.stallOpen = true;
 +                G.stallStart = now - 2 * kVBlankPeriod;
@@ -2171,8 +2215,8 @@ index 0000000..f2357f5
 +    uint32_t stallPc = 0, stallRa = 0;
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        due = G.vblankDue;
-+        G.vblankDue = 0;
++        due = G.vblank.due;
++        G.vblank.due = 0;
 +        events.swap(m_events);
 +        m_checkpointPending.store(m_stopRequested.load(std::memory_order_acquire), std::memory_order_release);
 +        if (G.stallOpen)
@@ -2326,7 +2370,7 @@ index 0000000..f2357f5
 +        std::unique_lock lock(m_eventMutex);
 +        G.waiting = true;
 +        m_eventCv.wait(lock, [this]()
-+                       { return G.vblankDue > 0u || !m_events.empty() || m_stopRequested.load(std::memory_order_acquire) ||
++                       { return G.vblank.due > 0u || !m_events.empty() || m_stopRequested.load(std::memory_order_acquire) ||
 +                                (G.deliverDepth == 0 && !m_pendingInvocations.empty()); });
 +        G.waiting = false;
 +    }
@@ -2927,12 +2971,12 @@ index 0000000..f2357f5
 +    return m_vsyncTick;
 +}
 +
-+void EeScheduler::shiftHostDeadlines(std::chrono::steady_clock::duration d)
++// The pause length is not used here: the vblank grid kept running during it (EeVBlankClock::resume)
++void EeScheduler::shiftHostDeadlines(std::chrono::steady_clock::duration)
 +{
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        G.next += d;
-+        G.vblankDue = 0;   // vblanks counted during the pause don't fire on resume
++        G.vblank.resume();
 +    }
 +    G.timerCv.notify_all();
 +}
@@ -6403,6 +6447,58 @@ index 4f979be..03042b7 100644
 +            t.Equals(compare(ps2_stubs::strncmp, "abcX", "abcY", 4u), int('X') - int('Y'), "'X' - 'Y' = -1");
 +            t.Equals(compare(ps2_stubs::strncmp, "cdrom0:", "host0:", 5u), int('c') - int('h'), "'c' - 'h' = -5");
 +            t.Equals(compare(ps2_stubs::strncmp, "abc", "xyz", 0u), 0, "n = 0 compares nothing");
++        });
++    });
+ }
+diff --git a/ps2xTest/src/ps2_runtime_kernel_tests.cpp b/ps2xTest/src/ps2_runtime_kernel_tests.cpp
+index 63b12d9..ac35669 100644
+--- a/ps2xTest/src/ps2_runtime_kernel_tests.cpp
++++ b/ps2xTest/src/ps2_runtime_kernel_tests.cpp
+@@ -4,6 +4,7 @@
+ #include "ps2_syscalls.h"
+ #include "ps2_stubs.h"
+ #include "runtime/ee_scheduler.h"
++#include "runtime/ee_vblank_clock.h"
+ 
+ #include <array>
+ #include <atomic>
+@@ -1564,4 +1565,39 @@ void register_ps2_runtime_kernel_tests()
+                      "GetEntryAddress should read and return the handler address from the table");
+         });
+     });
++
++    // WoTM: the game scheduler's vblank clock. The grid keeps running while the EE is paused on the host (a network wait in a
++    // match, photo mode), so resuming must not push the next vblank back by the pause: that left the game waiting the same time
++    // again, and in a network match the two PCs then took turns waiting for each other (stalls every 6th frame, shrinking).
++    MiniTest::Case("WotmVBlankClock", [](TestCase &tc)
++    {
++        using C = EeVBlankClock;
++        const C::Clock::time_point t0{};
++
++        tc.Run("after a pause the next vblank is at most one period away", [&](TestCase &t)
++        {
++            C vb;
++            vb.start(t0);
++            auto now = t0;
++            const auto pause = std::chrono::milliseconds(632);
++            for (; now < t0 + pause; now += std::chrono::milliseconds(1))   // the timer thread keeps firing during the pause
++                vb.fire(now);
++            vb.resume();
++            t.IsTrue(vb.next - now <= C::kPeriod, "the next vblank should fall due within one period of the resume");
++            t.Equals(vb.due, 0u, "the vblanks counted during the pause should not fire on resume");
++        });
++
++        tc.Run("the grid fires once per period and restarts after a long stall", [&](TestCase &t)
++        {
++            C vb;
++            vb.start(t0);
++            t.IsTrue(!vb.fire(t0 + std::chrono::milliseconds(10)), "woken early: no vblank");
++            t.IsTrue(vb.fire(t0 + C::kPeriod), "at the deadline: one vblank");
++            t.Equals(vb.due, 1u, "one vblank due");
++            const auto late = t0 + std::chrono::milliseconds(500);
++            t.IsTrue(vb.fire(late), "a late wake still counts one vblank");
++            t.IsTrue(vb.next == late + C::kPeriod, "after more than 4 periods the grid restarts from now");
++            t.Equals(vb.due, 2u, "a stall adds one vblank, not a burst");
 +        });
 +    });
  }

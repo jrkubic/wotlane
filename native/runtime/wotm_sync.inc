@@ -437,8 +437,8 @@ namespace wotm_sync
     }
 
     // End of the frame: the next one only starts with everyone's inputs for it. Stalled for more than 250 ms, the screen says who is
-    // missing; the stalled time is taken out of the EE's vsync deadlines (without that, the overdue vsyncs became a burst of frames
-    // afterwards).
+    // missing; afterwards shiftHostDeadlines drops the vsyncs that fell due during the stall (without that, they became a burst of
+    // frames), and the game scheduler's vblank grid, which kept running, gives the next one on time.
     uint32_t g_netStalls = 0;
     double g_netStallMs = 0.0;
 
