@@ -2688,7 +2688,7 @@ void wotmInstallOverrides(PS2Runtime &runtime, const std::string &elfPath)
     }
     wotm_multi::install(runtime);   // after the LoadLevelFiles hook (stage load), which it wraps
     wotm_sync::init(runtime);
-    wotm_modifiers::install(runtime);   // after wotm_sync::init: chains its rtReturnToShell wrapper
+    wotm_modifiers::install(runtime);   // after the direct match's userintMain, which it chains
     if ((g_origFfaOptions1P = runtime.lookupFunction(kFfaOptions1P)))
         runtime.registerFunction(kFfaOptions1P, &ffaOptions1PWithZero);
     if ((g_origFfaOptions2P = runtime.lookupFunction(kFfaOptions2P)))

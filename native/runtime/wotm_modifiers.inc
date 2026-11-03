@@ -1,8 +1,10 @@
 // wotm_modifiers.inc: gameplay modifiers (net/wotm_modifiers.hpp) inside the runtime. Included by wotm_overrides.cpp.
 //
-// The active set is latched once per fight (wotm_sync::g_mods, set by wotm_sync::levelLoad at Shell::LoadLevelFiles) and cleared at
-// rtReturnToShell, so a change in the options panel only reaches the next fight and post-fight menus run at normal speed. In a
-// network match the latch happens at the same frame index on every PC and the set is in the config hash.
+// The active set is latched once per fight (wotm_sync::g_mods, set by wotm_sync::levelLoad at Shell::LoadLevelFiles) and cleared on
+// entry of userintMain, where the game goes back to its menus after a session (a pause, the end-of-fight dialogs and RESTART stay in
+// the session: rtReturnToShell is not the end of a fight). So a change in the options panel only reaches the next fight and the menus
+// run at normal speed. In a network match the latch happens at the same frame index on every PC and the set is in the config hash; a
+// network match never goes back to the menus (QUIT closes the game).
 //  - Super Jump: TheGame::m_gravity x0.45. Its only writer is TheGame::InitBeforeDbLoad (one swc1), so the scale goes on entry of
 //    InitAfterDbLoad, which follows it. Global gravity keeps the game's own jump-height predictions (StateJump/StateFly::
 //    getJumpHeightGain) and throw aims consistent with the physics; per-monster m_gravityScale would not.
@@ -17,12 +19,12 @@
 namespace wotm_modifiers
 {
     namespace md = wotm::modifiers;
-    constexpr uint32_t kInitAfterDbLoad = wotm::fn::InitAfterDbLoad__7TheGame, kRtReturnToShell = wotm::fn::rtReturnToShell__Fii;
+    constexpr uint32_t kInitAfterDbLoad = wotm::fn::InitAfterDbLoad__7TheGame, kUserintMain = wotm::fn::userintMain__Fv;
     constexpr uint32_t kFootMotion = wotm::fn::updateFootMotion__15MonsterDynamicsfff;
     constexpr uint32_t kSpeedModifier = wotm::fn::getSpeedModifier__15MonsterDynamics;
     constexpr uint32_t kGameGravity = 0x1203C4u, kGameMonsters = 0x120380u;   // TheGame::m_gravity, m_monsters[0] (include/game/game.h)
     constexpr uint32_t kMonsterCs = 0xCu, kCsTrans = 0x10u, kMonsterVel = 0x1E0u;   // Monster::m_cs, _cs::trans, m_dynamics.m_body.vel
-    PS2Runtime::RecompiledFunction g_origInitAfterDbLoad = nullptr, g_origRtReturn = nullptr, g_origFootMotion = nullptr,
+    PS2Runtime::RecompiledFunction g_origInitAfterDbLoad = nullptr, g_origUserintMain = nullptr, g_origFootMotion = nullptr,
                                    g_origSpeedModifier = nullptr;
     uint32_t g_gravityWritten = 0;   // bits of the last gravity written: a second InitAfterDbLoad without a new base never scales twice
     bool g_stats = false;
@@ -43,16 +45,16 @@ namespace wotm_modifiers
         std::fprintf(stderr, "[modifiers] fight: \"%s\"\n", md::format(wotm_sync::g_mods).c_str());
     }
 
-    void rtReturnModsOff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void userintMainModsOff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (ctx->pc == kRtReturnToShell && wotm_sync::g_mods)
+        if (ctx->pc == kUserintMain && wotm_sync::g_mods)
         {
             wotm_sync::g_mods = 0;
             if (!wotm_sync::g_fixedStep)
                 setGameClockScale(1u);
-            std::fprintf(stderr, "[modifiers] off (back to the shell)\n");
+            std::fprintf(stderr, "[modifiers] off (back to the menus)\n");
         }
-        g_origRtReturn(rdram, ctx, runtime);
+        g_origUserintMain(rdram, ctx, runtime);
     }
 
     void initAfterDbLoadGravity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -141,8 +143,8 @@ namespace wotm_modifiers
         g_stats = std::getenv("WOTM_MODSTATS") && std::getenv("WOTM_MODSTATS")[0] == '1';
         if ((g_origInitAfterDbLoad = runtime.lookupFunction(kInitAfterDbLoad)))
             runtime.registerFunction(kInitAfterDbLoad, &initAfterDbLoadGravity);
-        if ((g_origRtReturn = runtime.lookupFunction(kRtReturnToShell)))   // after wotm_sync::init, whose wrapper it chains
-            runtime.registerFunction(kRtReturnToShell, &rtReturnModsOff);
+        if ((g_origUserintMain = runtime.lookupFunction(kUserintMain)))   // after the direct match's userintMain (WOTM_MATCH), which it chains
+            runtime.registerFunction(kUserintMain, &userintMainModsOff);
         if ((g_origFootMotion = runtime.lookupFunction(kFootMotion)))
             runtime.registerFunction(kFootMotion, &footMotionFast);
         if ((g_origSpeedModifier = runtime.lookupFunction(kSpeedModifier)))
