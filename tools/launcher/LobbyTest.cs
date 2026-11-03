@@ -152,6 +152,12 @@ static class LobbyTest
                 Check(Stun.ParseMappedAddress(cut, txn) == null, "truncated attribute");
                 Check(Stun.ParseMappedAddress(new byte[5], txn) == null && Stun.ParseMappedAddress(null, txn) == null, "too short or null");
             });
+            Run("stun_live", delegate
+            {
+                IPAddress a = Stun.PublicAddress(2500);
+                Check(a != null && ServerHost.Kind(a) == "public", "a public address comes back (" + (a == null ? "none" : a.ToString()) + ")");
+                Check(Stun.PublicAddress(new[] { "127.0.0.1:9" }, 300) == null, "a silent server gives null within the timeout");
+            });
             Run("firewall_verdict", delegate
             {
                 const int all = 0x7FFFFFFF, priv = FirewallCheck.Private, pub = FirewallCheck.Public;

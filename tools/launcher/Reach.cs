@@ -51,4 +51,47 @@ static class Stun
         }
         return plain;
     }
+
+    // One request to every server at once; the first valid answer wins. null when nobody answers within timeoutMs (offline, or UDP
+    // out is blocked). Blocks for up to timeoutMs: call it off the UI thread.
+    public static IPAddress PublicAddress(int timeoutMs) { return PublicAddress(Servers, timeoutMs); }
+
+    public static IPAddress PublicAddress(string[] servers, int timeoutMs)
+    {
+        IPAddress found = null;
+        int pending = servers.Length;
+        var done = new ManualResetEvent(false);
+        foreach (string s in servers)
+        {
+            string server = s;
+            new Thread(delegate()
+            {
+                IPAddress a = Query(server, timeoutMs);
+                lock (done) if (a != null && found == null) found = a;
+                if (a != null || Interlocked.Decrement(ref pending) == 0) done.Set();
+            }) { IsBackground = true }.Start();
+        }
+        done.WaitOne(timeoutMs + 500);
+        lock (done) return found;
+    }
+
+    static IPAddress Query(string server, int timeoutMs)
+    {
+        try
+        {
+            int colon = server.LastIndexOf(':');
+            var txn = new byte[12];
+            Array.Copy(Guid.NewGuid().ToByteArray(), txn, 12);
+            using (var udp = new UdpClient(AddressFamily.InterNetwork))
+            {
+                udp.Client.ReceiveTimeout = timeoutMs;
+                udp.Connect(server.Substring(0, colon), int.Parse(server.Substring(colon + 1)));
+                byte[] req = Request(txn);
+                udp.Send(req, req.Length);
+                var from = new IPEndPoint(IPAddress.Any, 0);
+                return ParseMappedAddress(udp.Receive(ref from), txn);
+            }
+        }
+        catch (Exception) { return null; }
+    }
 }
