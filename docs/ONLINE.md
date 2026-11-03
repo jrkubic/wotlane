@@ -130,7 +130,7 @@ to the console) and starts once that many players are in; `--code <code> --name 
   and the per-pair monster checks grow with the square of the count.
 - If a player leaves, their monster stands still for the rest of the match (same frame on every PC).
 - If the server sees two PCs with different game state ("desync"), the match stops on every PC with a message. Please report it with
-  everyone's `runtime\live.err.log`.
+  everyone's bug report zip (**Save bug report** in the launcher: `live.err.log`, settings, build and mods in one file).
 
 ## Troubleshooting
 

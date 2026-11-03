@@ -62,4 +62,5 @@ Problems
   says "no answer from inside" is not proof of a problem (some routers cannot test themselves): have a friend try once more.
 - The game opened on its own main menu instead of the match: someone pressed "Play" (offline) instead of "Start match". Close the
   game, open the launcher again and host or join the lobby again.
-- Anything else: send the host runtime\live.err.log (the host also has wotm_server.log next to the launcher).
+- Anything else: press "Save bug report" in the launcher and send the zip it puts on your Desktop (logs, settings, your GPU and
+  driver, the mods, the build). The host does the same: theirs also has the server's log. A screenshot helps for anything visual.
