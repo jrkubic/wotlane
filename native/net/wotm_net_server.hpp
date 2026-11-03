@@ -96,6 +96,7 @@ namespace wotm_net
             std::string code, name, password;
             int host = -1;                 // owner's index in conns_
             int stage = 1, wins = 0;
+            std::string mods;              // gameplay modifiers, canonical list (wotm_modifiers.hpp); "" = none
             std::vector<int> members;      // indices into conns_
             std::string build;
             std::unique_ptr<Match> match;
@@ -113,6 +114,8 @@ namespace wotm_net
         void leaveLobby(int c);
         bool closeIfEmpty(int lobby);
         void sendMembers(int lobby);
+        // SETTINGS <code> stage=<n> wins=<n> mods=<list>
+        std::string settingsLine(const Lobby &l) const;
         void sendSettings(int lobby);
         void startMatch(int lobby);
         std::string newCode();

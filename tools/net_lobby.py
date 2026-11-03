@@ -117,9 +117,11 @@ class Lobby:
     def _settings(line):
         return dict(kv.split('=', 1) for kv in line.split()[2:] if '=' in kv)
 
-    def set(self, stage=None, wins=None):
-        """Owner only: stage and wins for the next match; returns what the server stored."""
-        parts = ([f'stage={stage}'] if stage is not None else []) + ([f'wins={wins}'] if wins is not None else [])
+    def set(self, stage=None, wins=None, mods=None):
+        """Owner only: stage, wins and gameplay modifiers ("jump,fast,turbo", "" = none) for the next match; returns what
+        the server stored."""
+        parts = ([f'stage={stage}'] if stage is not None else []) + ([f'wins={wins}'] if wins is not None else []) + \
+            ([f'mods={mods}'] if mods is not None else [])
         self.send('SET ' + ' '.join(parts))
         self.settings = self._settings(self.expect('SETTINGS'))
         return self.settings
@@ -150,12 +152,13 @@ def match_env(match, host):
         'WOTM_FIXEDSTEP': match['step'],
         'WOTM_SEED': match['seed'],
         'WOTM_KILLTARGET': match.get('wins', '0'),
+        'WOTM_MODIFIERS': match.get('mods', ''),
         'WOTM_LOCALPLAYER': str(int(match['you']) + 1),
     }
     return env
 
 
-def form_group(host, port, names, monsters, stage, build, wins=0):
+def form_group(host, port, names, monsters, stage, build, wins=0, mods=''):
     """The first name creates a lobby, the others join by code, the first picks stage and wins and starts; returns each
     player's environment, in order."""
     members = []
@@ -166,7 +169,7 @@ def form_group(host, port, names, monsters, stage, build, wins=0):
                 code = members[0].create('teste', name, monster)
             else:
                 members[-1].join(code, name, monster)
-        members[0].set(stage=stage, wins=wins)
+        members[0].set(stage=stage, wins=wins, mods=mods)
         members[0].start()
         return [match_env(m.wait_match(), host) for m in members]
     finally:
@@ -243,6 +246,7 @@ def main():
     ap.add_argument('--monsters')
     ap.add_argument('--stage', type=int, default=1)
     ap.add_argument('--wins', type=int, default=0)
+    ap.add_argument('--mods', default='', help='gameplay modifiers for the match: comma list of jump, fast, turbo')
     ap.add_argument('--env-dir')
     a = ap.parse_args()
     if a.browse:
@@ -275,7 +279,7 @@ def main():
         if a.group:
             names = a.group.split(',')
             monsters = [int(m) for m in a.monsters.split(',')]
-            envs = form_group(host, int(port), names, monsters, a.stage, build, a.wins)
+            envs = form_group(host, int(port), names, monsters, a.stage, build, a.wins, a.mods)
             out = Path(a.env_dir or '.')
             for i, env in enumerate(envs, 1):
                 (out / f'env_{i}.txt').write_text(''.join(f'{k}={v}\n' for k, v in env.items()))
@@ -287,7 +291,7 @@ def main():
             if a.create:
                 code = m.create(a.create, a.name, a.monster, a.password)
                 print(f'lobby created, code {code}', file=sys.stderr, flush=True)
-                m.set(stage=a.stage, wins=a.wins)
+                m.set(stage=a.stage, wins=a.wins, mods=a.mods)
                 if a.start_with:
                     m.wait_members(a.start_with)
                     m.start()

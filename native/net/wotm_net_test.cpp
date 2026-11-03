@@ -402,7 +402,7 @@ namespace
         const std::string code = createLobby(a, "Lobby_1", "Ana", 3);
         CHECK(code.size() == 4u);
         CHECK(readUntil(a, "JOINED") == "JOINED " + code);
-        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=0");
+        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=0 mods=");
         CHECK(readUntil(a, "MEMBERS") == "MEMBERS " + code + " Ana Ana:3");
         watcher.sendLine("LIST");
         CHECK(readUntil(watcher, "LOBBY") == "LOBBY " + code + " waiting 1/8 open Lobby_1 Ana Ana");
@@ -414,18 +414,28 @@ namespace
             ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
         b.sendLine("JOIN " + lower + " Bia 1");
         CHECK(readUntil(b, "JOINED") == "JOINED " + code);
-        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=0");
+        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=0 mods=");
         CHECK(readUntil(a, "MEMBERS " + code + " Ana Ana:3,") == "MEMBERS " + code + " Ana Ana:3,Bia:1");
 
         b.sendLine("SET wins=3");
         CHECK(readUntil(b, "ERROR").find("owner") != std::string::npos);
         b.sendLine("START");
         CHECK(readUntil(b, "ERROR").find("owner") != std::string::npos);
-        a.sendLine("SET stage=5 wins=3");
-        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=3");
-        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=3");
+        a.sendLine("SET stage=5 wins=3 mods=");
+        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=3 mods=");
+        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=3 mods=");
         a.sendLine("SET wins=500");
-        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=99");
+        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=99 mods=");
+        // gameplay modifiers (net/wotm_modifiers.hpp): owner only, any order in, canonical order out; an unknown name changes nothing
+        b.sendLine("SET mods=jump");
+        CHECK(readUntil(b, "ERROR").find("owner") != std::string::npos);
+        a.sendLine("SET mods=turbo,jump");
+        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=99 mods=jump,turbo");
+        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=99 mods=jump,turbo");
+        a.sendLine("SET mods=moon stage=2");
+        CHECK(readUntil(a, "ERROR").find("unknown modifier") != std::string::npos);
+        a.sendLine("SET wins=99");
+        CHECK(readUntil(a, "SETTINGS") == "SETTINGS " + code + " stage=5 wins=99 mods=jump,turbo");
 
         a.sendLine("START");
         const auto ma = p::keyValues(p::words(readUntil(a, "MATCH"))), mb = p::keyValues(p::words(readUntil(b, "MATCH")));
@@ -437,6 +447,7 @@ namespace
         CHECK(ma.at("monsters") == "3,1" && mb.at("monsters") == "3,1");
         CHECK(ma.at("seed") == mb.at("seed") && ma.at("seed") != "0");
         CHECK(ma.at("step") == "1" && ma.at("names") == "Ana,Bia");
+        CHECK(ma.count("mods") && ma.at("mods") == "jump,turbo" && mb.count("mods") && mb.at("mods") == "jump,turbo");
         CHECK(ma.at("you") == "0" && mb.at("you") == "1");
         CHECK(ma.at("token") != mb.at("token") && ma.at("token").size() == 16u);
 
@@ -492,7 +503,7 @@ namespace
         }   // Ana's connection drops
         CHECK(readUntil(b, "MEMBERS " + code + " Bia") == "MEMBERS " + code + " Bia Bia:1");
         b.sendLine("SET wins=2");
-        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=2");
+        CHECK(readUntil(b, "SETTINGS") == "SETTINGS " + code + " stage=1 wins=2 mods=");
         b.sendLine("LEAVE");
         CHECK(readUntil(b, "LEFT") == "LEFT " + code);
         watcher.sendLine("LIST");

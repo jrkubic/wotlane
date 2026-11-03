@@ -1,6 +1,7 @@
 // ABOUTME: Netcode server implementation: TCP lobby (text lines) and ENet lockstep matches (input relay, delay from ping,
 // ABOUTME: state hashes, drops). No game code; runs in wotm_server and in the tests.
 #include "wotm_net_server.hpp"
+#include "wotm_modifiers.hpp"
 #include "wotm_monsters.hpp"
 
 #include <enet/enet.h>
@@ -333,6 +334,7 @@ namespace wotm_net
         l.host = -1;
         l.stage = 1;
         l.wins = 0;
+        l.mods.clear();
         l.members.clear();
         l.build = c.build;
         c.socket.sendLine("CREATED " + l.code);
@@ -382,12 +384,12 @@ namespace wotm_net
             l.host = ci;
         c.lobby = li, c.name = name, c.monster = monster;
         c.socket.sendLine("JOINED " + l.code);
-        c.socket.sendLine("SETTINGS " + l.code + " stage=" + std::to_string(l.stage) + " wins=" + std::to_string(l.wins));
+        c.socket.sendLine(settingsLine(l));
         log("lobby %s: %s joined (monster %d), %zu player(s)", l.code.c_str(), name.c_str(), monster, l.members.size());
         sendMembers(li);
     }
 
-    // SET [stage=<stage>] [wins=<wins>]: owner only
+    // SET [stage=<stage>] [wins=<wins>] [mods=<list>]: owner only; an unknown modifier changes nothing
     void Server::setLobby(int ci, const std::vector<std::string> &w)
     {
         Conn &c = *conns_[static_cast<size_t>(ci)];
@@ -397,6 +399,11 @@ namespace wotm_net
         if (l.host != ci)
             return void(c.socket.sendLine("ERROR only the lobby owner can change the stage and wins"));
         const std::map<std::string, std::string> kv = proto::keyValues(w);
+        int mods = 0;
+        if (auto it = kv.find("mods"); it != kv.end() && !wotm::modifiers::parse(it->second, mods))
+            return void(c.socket.sendLine("ERROR unknown modifier in \"" + it->second + "\" (known: jump, fast, turbo)"));
+        if (kv.count("mods"))
+            l.mods = wotm::modifiers::format(mods);
         if (auto it = kv.find("stage"); it != kv.end())
             l.stage = std::max(0, std::atoi(it->second.c_str()));
         if (auto it = kv.find("wins"); it != kv.end())
@@ -445,10 +452,15 @@ namespace wotm_net
             conns_[static_cast<size_t>(m)]->socket.sendLine(line);
     }
 
+    std::string Server::settingsLine(const Lobby &l) const
+    {
+        return "SETTINGS " + l.code + " stage=" + std::to_string(l.stage) + " wins=" + std::to_string(l.wins) + " mods=" + l.mods;
+    }
+
     void Server::sendSettings(int li)
     {
         Lobby &l = lobbies_[static_cast<size_t>(li)];
-        const std::string line = "SETTINGS " + l.code + " stage=" + std::to_string(l.stage) + " wins=" + std::to_string(l.wins);
+        const std::string line = settingsLine(l);
         for (int m : l.members)
             conns_[static_cast<size_t>(m)]->socket.sendLine(line);
     }
@@ -481,7 +493,8 @@ namespace wotm_net
         {
             Conn &c = *conns_[static_cast<size_t>(l.members[static_cast<size_t>(i)])];
             c.socket.sendLine("MATCH lobby=" + l.code + " players=" + std::to_string(players) + " stage=" + std::to_string(l.stage) +
-                              " wins=" + std::to_string(l.wins) + " monsters=" + join(monsters, ",") + " names=" + join(names, ",") +
+                              " wins=" + std::to_string(l.wins) + " mods=" + l.mods + " monsters=" + join(monsters, ",") +
+                              " names=" + join(names, ",") +
                               " seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " you=" + std::to_string(i) +
                               " token=" + m->slots[static_cast<size_t>(i)].token + " port=" + std::to_string(cfg_.port));
         }

@@ -52,6 +52,18 @@ class LobbyTest(unittest.TestCase):
         self.assertEqual(a['WOTM_FIXEDSTEP'], '1')
         self.assertEqual(b['WOTM_MATCH'], '3,1,1')
         self.assertEqual(b['WOTM_KILLTARGET'], '0')
+        self.assertEqual(b['WOTM_MODIFIERS'], '')       # always set: an unset list in a network match also means none
+
+    def test_group_modifiers_reach_every_player_in_canonical_order(self):
+        envs = net_lobby.form_group('127.0.0.1', self.port, ['Ana', 'Bia'], [3, 1], stage=1, build='b1', mods='turbo,jump')
+        self.assertEqual([e['WOTM_MODIFIERS'] for e in envs], ['jump,turbo', 'jump,turbo'])
+        self.assertEqual(envs[0]['WOTM_FIXEDSTEP'], '1')   # the runtime doubles the step itself during a turbo fight
+
+    def test_unknown_modifier_is_refused(self):
+        with net_lobby.Lobby('127.0.0.1', self.port, 'b1') as s:
+            s.create('Sala', 'Ana', 3)
+            with self.assertRaises(net_lobby.LobbyError):
+                s.set(mods='moon')
 
     def test_list_shows_lobbies_with_code_host_and_lock(self):
         with net_lobby.Lobby('127.0.0.1', self.port, 'b1') as s, net_lobby.Lobby('127.0.0.1', self.port, 'b1') as t, \
@@ -77,7 +89,7 @@ class LobbyTest(unittest.TestCase):
             b.join(code.lower(), 'Bia', 1, password='pw')
             with self.assertRaisesRegex(net_lobby.LobbyError, 'owner'):
                 b.set(wins=2)
-            self.assertEqual(a.set(stage=4, wins=2), {'stage': '4', 'wins': '2'})
+            self.assertEqual(a.set(stage=4, wins=2), {'stage': '4', 'wins': '2', 'mods': ''})
 
     def test_server_errors_raise(self):
         with net_lobby.Lobby('127.0.0.1', self.port, 'b1') as a, net_lobby.Lobby('127.0.0.1', self.port, 'other') as b:
@@ -180,7 +192,8 @@ class BrowseTest(unittest.TestCase):
         out = subprocess.run([sys.executable, str(REPO / 'tools' / 'net_lobby.py'), '--browse', f'127.0.0.1:{self.master}'],
                              capture_output=True, text=True, timeout=10)
         self.assertEqual(out.returncode, 0, out.stderr)
-        lines = out.stdout.strip().splitlines()
+        # the master lists servers in the order their announcements arrived: the two start together, so either may be first
+        lines = sorted(out.stdout.strip().splitlines())
         self.assertEqual(len(lines), 2, out.stdout)
         self.assertRegex(lines[0], rf'^Alpha +127\.0\.0\.1:{self.port + 1} +0 lobbies \(0 waiting\) +0 players +ping \d+ ms$')
         self.assertRegex(lines[1], rf'^Beta +127\.0\.0\.1:{self.port + 2} ')
