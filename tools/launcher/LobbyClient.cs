@@ -37,7 +37,7 @@ class LobbyClient : IDisposable
         if (!ar.AsyncWaitHandle.WaitOne(timeoutMs) || !tcp.Connected)
         {
             tcp.Close();
-            throw new LobbyError("no answer from " + host + ":" + port + " (is wotm_server running? is the TCP port open?)");
+            throw new LobbyError("no answer from " + host + ":" + port + " (is wotm_server running? is the TCP port open? ask the host what the Port test line in their launcher says)");
         }
         tcp.EndConnect(ar);
         tcp.NoDelay = true;

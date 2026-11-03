@@ -491,7 +491,7 @@ class Launcher : Form
     readonly NumericUpDown netWins = new NumericUpDown { Minimum = 0, Maximum = 99, Width = 60 };
     readonly Button netStart = new Button { Text = "Start match", AutoSize = true, Enabled = false };
     readonly Label netInfo = new Label { AutoSize = true, MaximumSize = new Size(400, 0) };
-    readonly TextBox netShare = new TextBox { Width = 390, Height = 92, Multiline = true, ReadOnly = true, Visible = false, ScrollBars = ScrollBars.Vertical };
+    readonly TextBox netShare = new TextBox { Width = 390, Height = 124, Multiline = true, ReadOnly = true, Visible = false, ScrollBars = ScrollBars.Vertical };
     // public server list: a master server (wotm_server --master) lists the servers that announce themselves to it
     readonly TextBox netMaster = new TextBox { Width = 160 };
     readonly Button netBrowse = new Button { Text = "Browse public servers", AutoSize = true };
@@ -510,6 +510,10 @@ class Launcher : Form
     string hostedPublic = "";   // "<master> <name>" the hosted server announces to, "" when private
     List<string> hostedLines = new List<string>();
     string hostedRouter = "";
+    // what the internet sees (Reach.cs): the public address line, the address itself, the port self-test line
+    string hostedAddress = "", hostedPortTest = "";
+    System.Net.IPAddress hostedStun;
+    bool portTestBusy, portTestDone;
     readonly Timer netTimer = new Timer { Interval = 200 };
     readonly List<LobbyClient.LobbyInfo> netLobbies = new List<LobbyClient.LobbyInfo>();
     LobbyClient lobby;
@@ -752,6 +756,9 @@ class Launcher : Form
             }
             catch (LobbyError e) { hosted = null; netInfo.Text = "Failed to start the server: " + e.Message; return; }
             hostedPublic = hosted.Owned ? wantPublic : "";
+            hostedAddress = hostedPortTest = "";
+            hostedStun = null;
+            portTestDone = false;
             hostedRouter = hosted.Owned ? "Router: trying to open port " + port + " (UPnP)..." : "A server was already running on port " + port + ": using it" +
                 (netPublic.Checked ? " (it isn't listed publicly by this launcher)." : ".");
             if (hosted.Owned) MapRouterPort(hosted);
@@ -793,6 +800,7 @@ class Launcher : Form
                     hostedFirewallProblem = problem;
                     if (problem || !text.StartsWith("Windows Firewall")) fwTimer.Start(); else fwTimer.Stop();
                     ShowShare();
+                    TryPortTest();
                 });
             }
             catch (InvalidOperationException) { }   // launcher already closed
@@ -829,25 +837,57 @@ class Launcher : Form
     {
         new System.Threading.Thread(delegate()
         {
+            System.Net.IPAddress stun = null;
+            var stunThread = new System.Threading.Thread(delegate() { stun = Stun.PublicAddress(2500); }) { IsBackground = true };
+            stunThread.Start();
             string why;
             string external = h.MapUpnp(out why);
+            stunThread.Join(3500);
             try
             {
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (hosted != h) return;
-                    if (external != null)
-                    {
-                        hostedLines = ServerHost.ShareLines(ServerHost.LocalAddresses(), external, h.Port);
-                        hostedRouter = "Router: port " + h.Port + " opened for TCP and UDP (UPnP).";
-                    }
+                    string share;
+                    hostedAddress = Reach.AddressVerdict(external, why, stun, h.Port, out share);
+                    hostedStun = stun;
+                    hostedLines = ServerHost.ShareLines(ServerHost.LocalAddresses(), share, h.Port);
+                    if (external != null) hostedRouter = "Router: port " + h.Port + " opened for TCP and UDP (UPnP).";
                     else
                     {
                         System.Net.IPAddress lan = ServerHost.RouterFacingAddress();
                         hostedRouter = "Router: " + why + ". For friends over the internet, forward port " + h.Port + " (TCP and UDP) to " +
-                            (lan != null ? lan.ToString() : "this PC") + " in your router (friends then use your public IP: search 'what is my ip'), " +
+                            (lan != null ? lan.ToString() : "this PC") + " in your router (friends then use the Internet address below), " +
                             "or have everyone join your Tailscale network.";
                     }
+                    ShowShare();
+                    TryPortTest();
+                });
+            }
+            catch (InvalidOperationException) { }   // launcher already closed
+        }) { IsBackground = true }.Start();
+    }
+
+    // The self-test through the router, once the public address is known and Windows Firewall lets wotm_server answer; a success is
+    // final for this server, a failure is tried again when the firewall verdict turns good (CheckFirewall calls here).
+    void TryPortTest()
+    {
+        if (hosted == null || hostedStun == null || portTestBusy || portTestDone || hostedFirewallProblem || hostedFirewall.Length == 0) return;
+        portTestBusy = true;
+        ServerHost h = hosted;
+        System.Net.IPAddress addr = hostedStun;
+        new System.Threading.Thread(delegate()
+        {
+            string detail;
+            bool ok = Reach.PortTest(addr, h.Port, 3000, out detail);
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    portTestBusy = false;
+                    if (hosted != h) return;
+                    portTestDone = ok;
+                    hostedPortTest = Reach.PortTestLine(ok, addr.ToString(), h.Port);
                     ShowShare();
                 });
             }
@@ -913,6 +953,8 @@ class Launcher : Form
         foreach (string a in hostedLines) l.Add("  " + a);
         if (hostedLines.Count == 0) l.Add("  (no network address found)");
         l.Add(hostedRouter);
+        if (hostedAddress.Length > 0) l.Add(hostedAddress);
+        if (hostedPortTest.Length > 0) l.Add(hostedPortTest);
         if (hostedPublic.Length > 0)
         {
             int sp = hostedPublic.LastIndexOf(' ');
