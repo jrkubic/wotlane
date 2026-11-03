@@ -115,6 +115,43 @@ static class LobbyTest
                 Check(LobbyClient.CleanName("La ne<>!_9-") == "Lane_9-", "characters dropped");
                 Check(LobbyClient.CleanName("abcdefghijklmnopqrst").Length == 16, "16 at most");
             });
+            Run("stun_parse", delegate
+            {
+                byte[] txn = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+                byte[] req = Stun.Request(txn);
+                Check(req.Length == 20 && req[0] == 0 && req[1] == 1 && req[2] == 0 && req[3] == 0 && req[4] == 0x21 && req[7] == 0x42 && req[19] == 12,
+                    "binding request: type 1, length 0, cookie, transaction id");
+                Func<byte[], byte[][], byte[]> reply = delegate(byte[] t, byte[][] attrs)
+                {
+                    var body = new List<byte>();
+                    foreach (byte[] at in attrs) body.AddRange(at);
+                    var r = new List<byte> { 0x01, 0x01, (byte)(body.Count >> 8), (byte)body.Count, 0x21, 0x12, 0xA4, 0x42 };
+                    r.AddRange(t); r.AddRange(body);
+                    return r.ToArray();
+                };
+                // XOR-MAPPED-ADDRESS 203.0.113.9:7777 (address and port XORed with the cookie), MAPPED-ADDRESS 198.51.100.7:7777
+                byte[] xorAttr = { 0x00, 0x20, 0x00, 0x08, 0x00, 0x01, (byte)(0x1E ^ 0x21), (byte)(0x61 ^ 0x12), (byte)(203 ^ 0x21), (byte)(0 ^ 0x12), (byte)(113 ^ 0xA4), (byte)(9 ^ 0x42) };
+                byte[] plainAttr = { 0x00, 0x01, 0x00, 0x08, 0x00, 0x01, 0x1E, 0x61, 198, 51, 100, 7 };
+                byte[] software = { 0x80, 0x22, 0x00, 0x05, (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o', 0, 0, 0 };   // 5 bytes + 3 of padding
+                byte[] v6 = { 0x00, 0x20, 0x00, 0x14, 0x00, 0x02, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+                IPAddress a = Stun.ParseMappedAddress(reply(txn, new[] { software, xorAttr }), txn);
+                Check(a != null && a.ToString() == "203.0.113.9", "XOR-MAPPED-ADDRESS after a padded attribute");
+                a = Stun.ParseMappedAddress(reply(txn, new[] { plainAttr }), txn);
+                Check(a != null && a.ToString() == "198.51.100.7", "MAPPED-ADDRESS accepted");
+                a = Stun.ParseMappedAddress(reply(txn, new[] { plainAttr, xorAttr }), txn);
+                Check(a != null && a.ToString() == "203.0.113.9", "XOR form preferred over the plain one");
+                Check(Stun.ParseMappedAddress(reply(txn, new[] { v6 }), txn) == null, "IPv6 mapped address is skipped");
+                Check(Stun.ParseMappedAddress(reply(txn, new[] { software }), txn) == null, "no address attribute");
+                byte[] other = (byte[])txn.Clone(); other[11] = 99;
+                Check(Stun.ParseMappedAddress(reply(other, new[] { xorAttr }), txn) == null, "another transaction id");
+                byte[] bad = reply(txn, new[] { xorAttr }); bad[5] = 0;
+                Check(Stun.ParseMappedAddress(bad, txn) == null, "wrong magic cookie");
+                byte[] err = reply(txn, new[] { xorAttr }); err[1] = 0x11;   // 0x0111 = binding error response
+                Check(Stun.ParseMappedAddress(err, txn) == null, "error response");
+                byte[] cut = new byte[26]; Array.Copy(reply(txn, new[] { xorAttr }), cut, 26);
+                Check(Stun.ParseMappedAddress(cut, txn) == null, "truncated attribute");
+                Check(Stun.ParseMappedAddress(new byte[5], txn) == null && Stun.ParseMappedAddress(null, txn) == null, "too short or null");
+            });
             Run("firewall_verdict", delegate
             {
                 const int all = 0x7FFFFFFF, priv = FirewallCheck.Private, pub = FirewallCheck.Public;

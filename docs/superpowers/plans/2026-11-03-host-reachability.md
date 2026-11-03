@@ -33,7 +33,7 @@ Conventions: every file starts with two `// ABOUTME:` comment lines; comments in
                 Func<byte[], byte[][], byte[]> reply = delegate(byte[] t, byte[][] attrs)
                 {
                     var body = new List<byte>();
-                    foreach (byte[] a in attrs) body.AddRange(a);
+                    foreach (byte[] at in attrs) body.AddRange(at);
                     var r = new List<byte> { 0x01, 0x01, (byte)(body.Count >> 8), (byte)body.Count, 0x21, 0x12, 0xA4, 0x42 };
                     r.AddRange(t); r.AddRange(body);
                     return r.ToArray();
