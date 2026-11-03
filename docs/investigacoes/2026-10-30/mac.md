@@ -1,6 +1,6 @@
 # macOS port with Windows x Mac online play: what decides determinism
 
-Lane's question: port the game to his Macs (MacBook Neo and MacBook Pro, all Apple Silicon) and play online Mac against Windows,
+Lane's question: port the game to their Macs (MacBook Neo and MacBook Pro, all Apple Silicon) and play online Mac against Windows,
 with either side hosting. Decisions: a native arm64 build with clang (SSE through the `sse2neon.h` that PS2Recomp already ships);
 no Rosetta (Apple keeps it complete only through macOS 27) and no Wine. The Mac build itself lives on `wotlane/mac` (ported by the
 Mac session); this report covers why two machines with different compilers and CPUs computed different game states, and what

@@ -107,7 +107,7 @@ to the console) and starts once that many players are in; `--code <code> --name 
   render scale, interpolation, enemy bars, damage numbers, button prompts) stay yours. Mouse clicks in menus, photo mode and switching
   targets with the keyboard are off online (they come from your PC only and would make the PCs drift apart).
 - Mods: everyone needs the same active mods (same files, same contents). Otherwise the server refuses the join with
-  "configuracao do jogo diferente".
+  "game configuration differs from the others".
 - Debug keys that change the game or pause it are off: F1 (cheats), F5 (free camera), F6/F7/F8 (pause, step, photo).
 - Input delay: 2 frames on a LAN, about 4 to 6 over the internet (each frame is 16.7 ms; 33 ms with 3 or more players, where the game
   runs its own 30 Hz mode). It is fixed for the whole match.
@@ -125,9 +125,9 @@ to the console) and starts once that many players are in; `--code <code> --name 
 ## Troubleshooting
 
 - "different build": someone is on another commit. Compare `python tools\build_id.py`; `git pull` and rebuild.
-- "configuracao do jogo diferente": someone launched with different game options (enemy bars, cheats, `WOTM_RATEMIN`, wins target)
+- "game configuration differs from the others": someone launched with different game options (enemy bars, cheats, `WOTM_RATEMIN`, wins target)
   or a different set of mods in `mods\`. Use the same launcher checkboxes in the Mods group and copy the same mod folders (folders whose
   name starts with `_` are off and do not count).
-- "sem resposta do servidor": the server is not running, the port is not forwarded (TCP and UDP), or a firewall blocks it.
+- "no answer from the server": the server is not running, the port is not forwarded (TCP and UDP), or a firewall blocks it.
 - Test everything on one PC: `powershell -File tools\net_check.ps1` starts a server and two games and checks that both stay identical;
   `powershell -File tools\net_checks.ps1` runs the online checks (per-PC settings, mouse, photo mode, pause, wins target, mods).

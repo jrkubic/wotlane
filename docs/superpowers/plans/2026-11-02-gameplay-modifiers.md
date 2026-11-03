@@ -95,7 +95,7 @@ nothing changes); `SETTINGS ... mods=<list>` and `MATCH ... mods=<list>`; `Lobby
 ### Task 5: panel tab and docs
 
 **Files:** `native/runtime/wotm_mainmenu.inc` (tab `MODIFIERS` between CAMERA and CONTROLS, three rows, hint "TAKES EFFECT AT
-THE NEXT FIGHT" in each), `docs/en/steps/NATIVE.md` (variables), `docs/en/ONLINE.md` (SET mods, MATCH mods).
+THE NEXT FIGHT" in each), `docs/passos/NATIVO.md` (variables), `docs/ONLINE.md` (SET mods, MATCH mods).
 
 - [ ] Build, open the panel with `WOTM_PADSEL_SCRIPT` to the new tab and toggle a row; `settings.ini` gets `WOTM_TURBO=1`. Commit.
 

@@ -45,8 +45,8 @@ Needs: Windows 10 or 11 (64-bit), a CPU from roughly 2015 or newer (AVX2), a con
 
 Problems
 --------
-- "build diferente" (different build): someone has a different package. Everyone needs the same one (see BUILD.txt).
-- "configuracao do jogo diferente" (different game setup): someone changed the mods folder or launcher checkboxes. Use the package as
+- "different build": someone has a different package. Everyone needs the same one (see BUILD.txt).
+- "game configuration differs from the others": someone changed the mods folder or launcher checkboxes. Use the package as
   it came.
-- "sem resposta do servidor" (no answer from the server): wrong address, the host's port is not open, or a firewall blocks it.
+- "no answer from the server": wrong address, the host's port is not open, or a firewall blocks it.
 - Anything else: send the host runtime\live.err.log (the host also has wotm_server.log next to the launcher).

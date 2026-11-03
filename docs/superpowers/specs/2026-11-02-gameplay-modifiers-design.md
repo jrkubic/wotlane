@@ -118,8 +118,8 @@ Test-first for every piece. No mocks of the game: the effects are measured in th
 
 ## Who does what
 
-- Mac: settings key, runtime hooks, server, `net_lobby.py`, tests 1-5, docs (`docs/en/steps/NATIVE.md` variable table,
-  `docs/en/ONLINE.md`).
+- Mac: settings key, runtime hooks, server, `net_lobby.py`, tests 1-5, docs (`docs/passos/NATIVO.md` variable table,
+  `docs/ONLINE.md`).
 - Windows chat: launcher (lobby settings checkboxes sending `SET mods=`, offline checkboxes writing `settings.ini`,
   `WOTM_MODIFIERS` from `MATCH`), `modcheck.ps1`, its half of test 6.
 

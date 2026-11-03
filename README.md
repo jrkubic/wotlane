@@ -98,7 +98,7 @@ Before committing changes to decompiled code, run `sh tools/wsl/gate.sh` (build 
   emulated VU1/GS and the renderer check).
 - `run_live.bat -Auto 0` runs the game to play with the keyboard; `tools/launcher/` is a small launcher with options such as starting a match directly (`WOTM_MATCH`) and cheats.
 - **Online play (this fork, 2 to 8 players, each on their own PC):** deterministic lockstep through a small server (`native/net`, `wotm_server`, no game
-  code). Setup, hosting, router and lobby steps: [docs/en/ONLINE.md](docs/en/ONLINE.md).
+  code). Setup, hosting, router and lobby steps: [docs/ONLINE.md](docs/ONLINE.md).
 - `mods/` holds the project's own mods (the Goliath Prime custom monster, the "Recompiled" logo): JSON and original art only. Every launch mirrors them into
   `<runtime>\discroot\mods\` (`tools/sync_mods.ps1`), where the game reads mods from; your own mods live there too. See [docs/passos/MODS.md](docs/passos/MODS.md).
 
@@ -106,7 +106,7 @@ Keyboard controls, environment variables and runtime details: [docs/passos/RUNTI
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). The rules in [CLAUDE.md](CLAUDE.md) apply to humans too: no game files or game assembly in the repo, issues or PRs, and the ROM must keep matching
-the retail SHA1. Most project documentation is currently written in Portuguese; English translations are in [docs/en/](docs/en/README.md).
+the retail SHA1. The documentation is in English; some file names (`docs/passos/` "steps", `NATIVO.md`, `GLOSSARIO.md`) are still the inherited Portuguese ones.
 
 ## License
 The code in this repository is [GPL-3.0](LICENSE). It only covers what is here (decompilation, tools, native layer) and grants no rights over the game, which still belongs to its owners.

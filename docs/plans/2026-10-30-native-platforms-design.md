@@ -70,7 +70,7 @@ This project deliberately has no unit tests, and its rule takes priority here ov
 the project's way:
 - Build output.
 - `file` on the binary, which must say Mach-O arm64.
-- The game on screen, using the F3 FPS counter, `live.err.log`, and the `[native]`/`[vigia]`/`[partida]` log lines.
+- The game on screen, using the F3 FPS counter, `live.err.log`, and the `[native]`/`[watchdog]`/`[match]` log lines.
 - `WOTM_MATCH`/`WOTM_AIVSAI` to reach a fight without the pad.
 - Later, `corpus`/`lote`-style batches ported to `sh`.
 
