@@ -25,8 +25,13 @@ and can be shared freely.
      writes `wotm_server.log` next to the launcher and stops when you close the launcher, so keep the launcher open while you play),
      hosts a lobby on it and shows a box to copy to your friends: the addresses they can type as Server and the lobby code. It also
      asks your router to open the port (UPnP, TCP and UDP; closed again when the launcher closes). If the router refuses, the box says
-     so and which local address to forward the port to. To list it publicly, type the **Master server** address and tick **List
-     publicly as** (with a name) before pressing **Host on this PC** (see "Public server list" below).
+     so and which local address to forward the port to. It also asks a public STUN server (one UDP packet) which address the internet
+     sees for you and says under the Router line whether the router's address agrees: when it does not, you are behind a second router
+     or the provider's shared address (CGNAT), UPnP opened only the near router, and the line says what to do. Once Windows Firewall
+     is in order (next step) it connects to your own public address through the router and reports **Port test: friends can reach
+     ...**; a router that cannot loop back to itself gives an inconclusive line, and a friend's try settles it. To list the server
+     publicly, type the **Master server** address and tick **List publicly as** (with a name) before pressing **Host on this PC**
+     (see "Public server list" below).
    - **Standalone:** run `native\net\build\wotm_server.exe --port 7777` and leave its window open while you play; close it to stop.
    Players create the lobbies themselves from the launcher (up to 16 at a time, `--lobbies N` to change; `--players 2..8` per lobby, 8 by default).
 3. The first time, Windows Firewall asks about `wotm_server.exe`: allow it, for private and public networks. The launcher reads the
@@ -133,6 +138,8 @@ to the console) and starts once that many players are in; `--code <code> --name 
 - "game configuration differs from the others": someone launched with different game options (enemy bars, cheats, `WOTM_RATEMIN`, wins target)
   or a different set of mods in `mods\`. Use the same launcher checkboxes in the Mods group and copy the same mod folders (folders whose
   name starts with `_` are off and do not count).
-- "no answer from the server": the server is not running, the port is not forwarded (TCP and UDP), or a firewall blocks it.
+- "no answer from the server": the server is not running, the port is not forwarded (TCP and UDP), or a firewall blocks it. The host
+  reads the Windows Firewall line, the Internet address line and the Port test line in the launcher's box: together they say whether
+  the internet reaches the port and what to change if not.
 - Test everything on one PC: `powershell -File tools\net_check.ps1` starts a server and two games and checks that both stay identical;
   `powershell -File tools\net_checks.ps1` runs the online checks (per-PC settings, mouse, photo mode, pause, wins target, mods).

@@ -44,6 +44,9 @@ Needs: Windows 10 or 11 (64-bit), a CPU from roughly 2015 or newer (AVX2), a con
 4. The launcher asks your router to open the port (UPnP). If the box says the router refused:
    - forward port 7777, TCP and UDP, on your router to the local address the box shows, or
    - everyone installs Tailscale (free, tailscale.com), joins the host's network, and uses the host's 100.x.y.z address.
+   The box also shows the Internet address your friends type and, a few seconds later, a "Port test" line: "friends can reach ..."
+   means the internet reaches your server. If it says you are behind another router or the provider's shared address, follow that
+   line (forward the port on the outer router, or use Tailscale).
 5. Pick "Wins to end" (0 = endless) and press "Start match" when everyone is in. Not "Play": that starts the offline game and
    closes the launcher, which stops the server and the lobby for everyone (the launcher asks first).
 
@@ -54,9 +57,9 @@ Problems
 - "game configuration differs from the others": someone changed the mods folder or launcher checkboxes. Use the package as
   it came.
 - "no answer from the server": wrong address, the host's port is not open, or a firewall blocks it.
-  Host: read the Windows Firewall line under the box (and press "Allow in Windows Firewall" if it asks you to). If it is fine and
-  the box says the router opened the port, compare the Internet address in the box with what "what is my ip" shows in a browser:
-  a different address means a second router or the provider's shared address (CGNAT); use Tailscale then.
+  Host: read the Windows Firewall line under the box (and press "Allow in Windows Firewall" if it asks you to), then the Internet
+  address and Port test lines in the box: they say whether the internet reaches your port and what to do if not. A Port test that
+  says "no answer from inside" is not proof of a problem (some routers cannot test themselves): have a friend try once more.
 - The game opened on its own main menu instead of the match: someone pressed "Play" (offline) instead of "Start match". Close the
   game, open the launcher again and host or join the lobby again.
 - Anything else: send the host runtime\live.err.log (the host also has wotm_server.log next to the launcher).
