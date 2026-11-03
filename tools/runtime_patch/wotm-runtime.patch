@@ -3607,7 +3607,7 @@ index 9614016..72d2d6a 100644
  
      void InitTLB(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 diff --git a/ps2xRuntime/src/lib/gs/gs_frontend.cpp b/ps2xRuntime/src/lib/gs/gs_frontend.cpp
-index 5658928..199f680 100644
+index 5658928..0803fc5 100644
 --- a/ps2xRuntime/src/lib/gs/gs_frontend.cpp
 +++ b/ps2xRuntime/src/lib/gs/gs_frontend.cpp
 @@ -6,6 +6,7 @@
@@ -3653,7 +3653,7 @@ index 5658928..199f680 100644
  
 +        // WotM: WOTM_GSUPLOADLOG=<dbp>[,<dbp>...] (hex) prints every host -> GS transfer that covers any of those blocks (range
 +        // approximated from the buffer width: dbw pages of 64 px per row) and WOTM_GSUPLOADLOG=all prints them all; diagnoses the
-+        // textures missing from the snapshot's VRAM (VU1CHECK.md, "Texels").
++        // textures missing from the snapshot's VRAM (`d5039fb:docs/passos/VU1CHECK.md`, "Texels").
 +        if (m_trxdir == 0u)
 +        {
 +            static const char *s_upLog = std::getenv("WOTM_GSUPLOADLOG");

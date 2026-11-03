@@ -2343,7 +2343,7 @@ void hierChecked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // texmActivateTexture(texId, tex0, pkt): a miss in the stage's texture cache. Writes the slot's DBP into the BITBLTBUF of the upload packet
 // (texInfo[id][0] + 0x30) and queues it on hier's VU1 chain (pktAddVu1Tex). Outside the sampled frame that chain never goes to the
 // DMA (main.cpp's hierFlushObjQ only zeroes the counters), and the upload was lost: the snapshot's VRAM kept the old texture
-// in the slot and the reference image came out with a different texture (VU1CHECK.md, "Texels"; found with WOTM_GSUPLOADLOG). With the snapshot
+// in the slot and the reference image came out with a different texture (`d5039fb:docs/passos/VU1CHECK.md`, "Texels"; found with WOTM_GSUPLOADLOG). With the snapshot
 // on, the hook sends the same packet (sceGsLoadImage: A+D with BITBLTBUF/TRXPOS/TRXREG/TRXDIR and the image) straight to the GS. The
 // mipmaps (texmSetMipMapTbl) are still left out. On the sampled frame the chain really goes to the DMA and the hook does nothing.
 PS2Runtime::RecompiledFunction g_origTexActivate = nullptr;
