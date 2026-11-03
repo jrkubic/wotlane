@@ -11,7 +11,7 @@ and can be shared freely.
    **plus the component "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44-17.14)"** (Visual Studio Installer, Modify, Individual
    components). Online play is tested with 14.44, so the setup insists on it.
 2. Clone the fork on the same commit as your friends:
-   `git clone -b wotlane/4p https://github.com/sightama/wotlane.git` (agree on the commit: `git log -1 --format=%h`).
+   `git clone -b wotlane/mac https://github.com/sightama/wotlane.git` (agree on the commit: `git log -1 --format=%h`).
 3. Put your own ISO in `ISO\` and run `powershell -ExecutionPolicy Bypass -File tools\setup_runtime.ps1` (about 10 minutes the first
    time). Later updates: `git pull`, then `build_runtime.bat`.
 4. Compare build ids in your chat: `python tools\build_id.py`. Everyone must print the same `wl-...` id. The server refuses players with
