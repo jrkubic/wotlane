@@ -75,6 +75,7 @@ namespace wotm_sync
     std::vector<InputRecord> g_inputPlay;
     bool g_levelLoaded = false;   // a level has been loaded (recording and replay count its frames)
     uint32_t g_index = 0;         // frame since the level load
+    int g_mods = 0;               // gameplay modifiers of the current fight (wotm::modifiers bits; wotm_modifiers.inc latches them)
     bool g_loggedLocal = false, g_loggedApplied = false;
 
     // Network match (WOTM_NET=<host>:<port> and WOTM_NETTOKEN=<token>, given by the lobby: the launcher or tools/net_lobby.py). Every PC
@@ -651,12 +652,14 @@ namespace wotm_sync
     {
         if (g_fixedStep)
         {
-            const uint32_t step = static_cast<uint32_t>(g_fixedStep);
+            const uint32_t step = static_cast<uint32_t>(wotm::modifiers::fieldsPerFrame(g_fixedStep, g_mods));
             Ps2FastWrite32(rdram, fieldCounter, Ps2FastRead32(rdram, fieldCounterAtStart) + step);
             Ps2FastWrite32(rdram, fieldsForAverage, Ps2FastRead32(rdram, fieldsForAverage) + step);
             g_virtualTics += step * 9619u;
             g_ticCalls = 0;
-            wotmSoundFrame(step);   // sound advances by the same amount, on the game thread (when each sound ends becomes a function of the frames)
+            // sound advances by the frame's real length, on the game thread (when each sound ends becomes a function of the frames);
+            // in a turbo fight that is 1 vsync for 2 fields, so sound keeps its normal speed instead of overfilling the output
+            wotmSoundFrame(static_cast<unsigned>(wotm::modifiers::vsyncsPerFrame(g_fixedStep, g_mods)));
             if (g_inputRec && g_levelLoaded)
             {
                 for (int c = 0; c < kControllers; ++c)
