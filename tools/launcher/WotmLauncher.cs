@@ -155,6 +155,10 @@ class Launcher : Form
             "Online group: the game opens by itself, so do not press Play while you are in a lobby.");
         var log = new Button { Text = "Open live.err.log", AutoSize = true };
         log.Click += delegate { OpenLog(); };
+        var report = new Button { Text = "Save bug report", AutoSize = true };
+        report.Click += delegate { SaveBugReport(); };
+        tips.SetToolTip(report, "Writes wotm-report-<date>.zip on your Desktop: the game, server and launcher logs and settings, the build id, the mods, " +
+            "your GPU and driver, and what the launcher knows about your network. Send it with your bug report. File paths in it show your Windows user name.");
         var reset = new Button { Text = "Defaults", AutoSize = true };
         reset.Click += delegate
         {
@@ -171,6 +175,7 @@ class Launcher : Form
         };
         buttons.Controls.Add(play);
         buttons.Controls.Add(log);
+        buttons.Controls.Add(report);
         var modkit = new Button { Text = "Mod kit", AutoSize = true };
         modkit.Click += delegate { OpenModKit(); };
         tips.SetToolTip(modkit, "Extract textures and sounds from the disc, edit them and pack them into mods\\<mod>\\ (docs\\passos\\MODS.md).");
@@ -1331,6 +1336,56 @@ class Launcher : Form
             catch (Exception) { }
         }
         status.Text = "Python not found: install Python 3 (with Pillow: pip install pillow) to use the mod kit.";
+    }
+
+    // One zip on the Desktop with what a bug report needs (BugReport.cs): the facts in report.txt, then the logs and settings.
+    void SaveBugReport()
+    {
+        string rt = RuntimeDir();
+        string zipPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "wotm-report-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".zip");
+        var info = new List<KeyValuePair<string, string>>();
+        Action<string, string> add = delegate(string k, string v) { info.Add(new KeyValuePair<string, string>(k, v)); };
+        add("Build id", BuildId());
+        try { if (File.Exists(Path.Combine(exeDir, "BUILD.txt"))) add("Package", File.ReadAllText(Path.Combine(exeDir, "BUILD.txt")).Trim()); }
+        catch (IOException) { }
+        add("Launcher", exeDir + " (built " + File.GetLastWriteTime(Application.ExecutablePath).ToString("yyyy-MM-dd HH:mm") + ")");
+        add("Runtime folder", rt ?? "(not found)");
+        string mods = ModsDir();
+        if (mods == null) add("Mods", "(no mods folder)");
+        else
+            foreach (string d in Directory.GetDirectories(mods))
+            {
+                string name = Path.GetFileName(d);
+                long size = 0;
+                int n = 0;
+                try { foreach (string f in Directory.GetFiles(d, "*", SearchOption.AllDirectories)) { ++n; size += new FileInfo(f).Length; } }
+                catch (IOException) { }
+                add("Mod", name + (name.StartsWith("_") || name.StartsWith(".") ? " (off)" : "") + ": " + n + " file(s), " + (size >> 10) + " KB");
+            }
+        foreach (Screen sc in Screen.AllScreens) add("Screen", sc.Bounds.Width + "x" + sc.Bounds.Height + (sc.Primary ? " (primary)" : ""));
+        add("Online", "server " + netServer.Text.Trim() + (lobbyCode.Length > 0 ? ", lobby " + lobbyCode : ", no lobby") +
+            (hosted != null ? ", hosting on port " + hosted.Port : ""));
+        foreach (string h in new[] { hostedRouter, hostedAddress, hostedPortTest, hostedFirewall }) if (h.Length > 0) add("Host", h);
+        info.AddRange(BugReport.SystemInfo());
+        var files = new List<ReportFile>();
+        if (rt != null)
+        {
+            string logs = Directory.Exists(Path.Combine(rt, "logs")) ? Path.Combine(rt, "logs") : rt;
+            files.Add(new ReportFile("live.err.log", Path.Combine(logs, "live.err.log")));
+            files.Add(new ReportFile("live.out.log", Path.Combine(logs, "live.out.log")));
+            files.Add(new ReportFile("settings.ini", Path.Combine(rt, @"discroot\settings.ini")));
+        }
+        files.Add(new ReportFile("wotm_server.log", Path.Combine(exeDir, "wotm_server.log")));
+        files.Add(new ReportFile("WotM_Launcher.ini", IniPath));
+        try
+        {
+            SaveIni();   // so the ini in the zip shows the boxes as they are now
+            List<string> missing = BugReport.Write(zipPath, info, files);
+            status.Text = "Bug report saved on your Desktop: " + Path.GetFileName(zipPath) +
+                (missing.Count > 0 ? " (not found: " + string.Join(", ", missing.ToArray()) + ")" : "") + ". Send it with your report.";
+        }
+        catch (Exception e) { status.Text = "Could not write the bug report: " + e.Message; }
     }
 
     void OpenLog()

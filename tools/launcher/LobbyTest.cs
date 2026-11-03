@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Threading;
 
@@ -188,6 +189,47 @@ static class LobbyTest
                 Check(Reach.PortTestLine(true, "203.0.113.9", 7777).StartsWith("Port test: friends can reach 203.0.113.9:7777"), "positive line");
                 string neg = Reach.PortTestLine(false, "203.0.113.9", 7777);
                 Check(neg.Contains("no answer at 203.0.113.9:7777") && neg.Contains("ask a friend") && neg.Contains("forward port 7777"), "inconclusive line");
+            });
+            Run("bug_report", delegate
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "wotm_report_test_" + Process.GetCurrentProcess().Id);
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    File.WriteAllText(Path.Combine(dir, "small.log"), "hello log\n");
+                    File.WriteAllText(Path.Combine(dir, "big.log"), new string('x', 3000) + "TAIL");
+                    string zipPath = Path.Combine(dir, "r.zip");
+                    var files = new List<ReportFile>
+                    {
+                        new ReportFile("logs/small.log", Path.Combine(dir, "small.log")),
+                        new ReportFile("logs/big.log", Path.Combine(dir, "big.log")) { MaxBytes = 1000 },
+                        new ReportFile("gone.log", Path.Combine(dir, "gone.log"))
+                    };
+                    var info = new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("Build", "wl-test") };
+                    List<string> missing = BugReport.Write(zipPath, info, files);
+                    Check(missing.Count == 1 && missing[0] == "gone.log", "the missing file is reported, not fatal");
+                    using (ZipArchive z = ZipFile.OpenRead(zipPath))
+                    {
+                        var names = new List<string>();
+                        foreach (ZipArchiveEntry e in z.Entries) names.Add(e.FullName);
+                        Check(names.Contains("report.txt") && names.Contains("logs/small.log") && names.Contains("logs/big.log") && !names.Contains("gone.log"),
+                            "entries: " + string.Join(", ", names.ToArray()));
+                        string report = new StreamReader(z.GetEntry("report.txt").Open()).ReadToEnd();
+                        Check(report.Contains("Build: wl-test") && report.Contains("(missing) gone.log") && report.Contains("logs/big.log (last"),
+                            "report.txt lists the facts and the files");
+                        string big = new StreamReader(z.GetEntry("logs/big.log").Open()).ReadToEnd();
+                        Check(big.Length == 1000 && big.EndsWith("TAIL"), "a long file goes in from the end (" + big.Length + " bytes)");
+                    }
+                    List<KeyValuePair<string, string>> sys = BugReport.SystemInfo();
+                    bool gpu = false, win = false;
+                    foreach (KeyValuePair<string, string> kv in sys)
+                    {
+                        if (kv.Key == "GPU" && !kv.Value.StartsWith("(")) gpu = true;
+                        if (kv.Key == "Windows" && kv.Value.Contains("Windows")) win = true;
+                    }
+                    Check(gpu && win, "SystemInfo names Windows and a video adapter");
+                }
+                finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
             });
             Run("firewall_verdict", delegate
             {
