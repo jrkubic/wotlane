@@ -32,14 +32,22 @@ def tira_caminhos(linha):
     return CODIGO.sub(lambda m: "``" if "/" in m.group(0) else m.group(0), linha)
 
 
+# Each rule has an English half (our docs) and a Portuguese half (text that arrives in upstream merges). The English half is
+# narrower than a word-for-word copy: "fixed in" and "used to" are everyday present-tense English ("fixed in place", "the button
+# used to exit"), so a fix only counts as history when it names a commit, and "used to" only after a pronoun ("it used to").
+FEITO_EM_COMMIT = r"(done|fixed|resolved) (in|on) (commit\b|[0-9a-f]{7,}\b)"
 HISTORIA = re.compile(
     r"\b(feit[oa]s? em|corrigid[oa]s? (em|no|na|de passagem)|antes (era|ficava|saía|vinha|dava|zerava|ia|não)|"
-    r"na master|(depois|antes|desde) d[oe] merge\b|conferid[oa]s?\b|relato de)",
+    r"na master|(depois|antes|desde) d[oe] merge\b|conferid[oa]s?\b|relato de|"
+    r"fixed (in passing|along the way)|" + FEITO_EM_COMMIT + r"|(it|this|that|they|what|which) used to\b|on master\b|"
+    r"(verified|checked) by the owner\b|"
+    r"report (by|from|of) the owner\b)",
     re.IGNORECASE,
 )
 CITACAO = re.compile(r'"[^"\n]*"')  # a word in double quotes is quoted (e.g. the rule itself), not history
 FEITO = re.compile(r"(\bfeit[oa]s? (em|no|na|pel[oa]s?)\b|\*\*feit|— feit|\(feit|\bna master\b|~~|\bcorrigid[oa]s? em\b|"
-                   r"\bconferid[oa]s? pelo dono\b)", re.IGNORECASE)
+                   r"\bconferid[oa]s? pelo dono\b|\b" + FEITO_EM_COMMIT + r"|\*\*(done|fixed)\b|— (done|fixed)\b|"
+                   r"\((done|fixed)\b|\bon master\b|\b(verified|checked) by the owner\b)", re.IGNORECASE)
 MAX_LINHAS_ITEM = 6  # a TODO item (bullet or number) with more lines than this has turned into a report
 
 
