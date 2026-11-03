@@ -14,7 +14,7 @@
 // row is outside currentSelection (g_extraRow, like "quit game"); X on it opens the port's options panel in place of the list, without changing screens, and
 // triangle (or O) closes it. With the panel open (and for 20 frames after closing) the game sees no input at all: the panel reads
 // the devices directly (wotm_padsel::readDevice), on the EE thread, inside the screenGetInput hook.
-// Panel: tabs VIDEO / FEATURES / CAMERA / CONTROLS (L1/R1), up/down pick the row, left/right/X
+// Panel: tabs VIDEO / FEATURES / CAMERA / MODIFIERS / CONTROLS (L1/R1), up/down pick the row, left/right/X
 // change the value, which takes effect immediately and is saved to settings.ini (wotm_settings.hpp; video is applied on the window
 // thread by wotm_live.inc's applyVideoSettings). Drawn into a texture of our own over the whole big screen (the visible band below the menu's banner).
 // CONTROLS tab (scrolls): separate keyboard, which map the list shows (keyboard or gamepads), one row per PS2 button (X waits for the
@@ -120,8 +120,8 @@ static int g_pauseSuppress = 0;
 // Each option is a wotm_settings.hpp key; changing it saves settings.ini and takes effect immediately (video on the window thread,
 // mods and keyboard the next time they are read).
 namespace st = wotm::settings;
-enum Tab { TabVideo, TabFeatures, TabCamera, TabControls, kTabs };
-constexpr const char *kTabNames[kTabs] = {"VIDEO", "FEATURES", "CAMERA", "CONTROLS"};
+enum Tab { TabVideo, TabFeatures, TabCamera, TabModifiers, TabControls, kTabs };
+constexpr const char *kTabNames[kTabs] = {"VIDEO", "FEATURES", "CAMERA", "MODIFIERS", "CONTROLS"};
 constexpr int kMaxOpts = 9;
 struct Opt { st::Key key; const char *label; const char *hint; };
 struct TabDef { int n; Opt opt[kMaxOpts]; };
@@ -148,6 +148,10 @@ constexpr TabDef kTabDefs[kTabs] = {
       {st::CamInvertY, "INVERT Y", "FLIPS UP AND DOWN ON THE RIGHT STICK"},
       {st::CamRecenter, "AUTO CENTER", "WHILE YOU WALK, THE CAMERA SLOWLY SWINGS BACK BEHIND YOUR MONSTER"},
       {st::CloseCam, "CLOSE-UP CAMERA", "WHEN TWO MONSTERS FIGHT UP CLOSE, THE GAME CAN SWITCH TO A SHARED VIEW"}}},
+    {3,   // gameplay modifiers (wotm_modifiers.inc): latched at the fight start; online, the lobby's (locked here)
+     {{st::SuperJump, "SUPER JUMP", "MOON GRAVITY: JUMPS GO TWICE AS HIGH. TAKES EFFECT AT THE NEXT FIGHT"},
+      {st::FastMonsters, "FAST MONSTERS", "MONSTERS WALK, RUN AND DASH 1.5X FASTER. TAKES EFFECT AT THE NEXT FIGHT"},
+      {st::Turbo, "TURBO", "THE WHOLE FIGHT RUNS AT DOUBLE SPEED. TAKES EFFECT AT THE NEXT FIGHT"}}},
     {4,
      {{st::KbSeparate, "KEYBOARD", "SHARE PLAYER 1 WITH THE FIRST GAMEPAD, OR PLAY AS A PLAYER OF ITS OWN"},
       {st::Prompts, "BUTTON ICONS", "AUTO SHOWS THE BUTTONS OF WHATEVER YOU PLAYED WITH LAST"},
@@ -1289,6 +1293,28 @@ static void labelLeft(std::vector<wotm::TextQuad> &quads, const wotm::Ram &ram, 
 
 // ------------------------------------------------------------------ panel (its own texture, over the whole big screen)
 constexpr int kPW = 1800, kPH = 1100;   // ~1.64:1, the big screen's proportions (204 x 124)
+
+// Tab row of the panel (drawing and mouse hover): between the L1 and R1 icons (14% to 86% of the width), names in the game font as
+// big as fits (up to 50) with equal gaps, centers in x
+static void tabLayout(float W, float x[kTabs], float &h)
+{
+    const float left = W * 0.14f, right = W * 0.86f, minGap = W * 0.025f;
+    size_t chars = 0;
+    for (const char *n : kTabNames)
+        chars += std::strlen(n);
+    h = 50.f;
+    while (h > 24.f && glyphAdvance(kPW, kPH, h) * float(chars) + minGap * float(kTabs - 1) > right - left)
+        h -= 1.f;
+    const float adv = glyphAdvance(kPW, kPH, h), gap = (right - left - adv * float(chars)) / float(kTabs - 1);
+    float at = left;
+    for (int t = 0; t < kTabs; ++t)
+    {
+        const float w = adv * float(std::strlen(kTabNames[t]));
+        x[t] = at + w * 0.5f;
+        at += w + gap;
+    }
+}
+
 static RenderTexture2D g_prt{};
 
 // Row measurements for a tab (drawing and mouse). On VIDEO the rows are shorter and tighter (all 9 fit without scrolling) and sit on
@@ -1383,8 +1409,9 @@ static void renderPanel(wotm::Scene &scene, const wotm::Ram &ram, uint64_t tex0,
     DrawRectangleRounded(Rectangle{4.f, 4.f, W - 8.f, H - 8.f}, 0.06f, 12, Color{0, 0, 0, 175});
 
     // tabs: L1  VIDEO  FEATURES  CAMERA  CONTROLS  R1
-    const float tabY = lineH * 0.7f, tabH = 50.f;
-    const float tabX[kTabs] = {W * 0.22f, W * 0.40f, W * 0.59f, W * 0.78f};
+    const float tabY = lineH * 0.7f;
+    float tabX[kTabs], tabH;
+    tabLayout(W, tabX, tabH);
     if (v.training || v.moves)   // training: title only
         label(q, ram, tex0, v.moves ? "MOVE LIST" : "TRAINING OPTIONS", W * 0.5f, tabY, tabH, kLit, kPW, kPH);
     for (int t = 0; t < kTabs && !v.training && !v.moves; ++t)
@@ -1835,12 +1862,13 @@ static void panelHit(float u, float w, const View &v, Hover &hv)
     const float W = float(kPW), H = float(kPH), lineH = H / 8.9f, X = u * W, Y = w * H;
     if (!v.training && !v.moves && std::fabs(Y - lineH * 0.7f) < lineH * 0.5f)
     {
-        const float tabX[kTabs] = {W * 0.22f, W * 0.40f, W * 0.59f, W * 0.78f};
+        float tabX[kTabs], tabH;
+        tabLayout(W, tabX, tabH);
         if (X < W * 0.14f) hv.part = HPrevTab;
         else if (X > W * 0.86f) hv.part = HNextTab;
         else
-            for (int t = 0; t < kTabs; ++t)
-                if (std::fabs(X - tabX[t]) < W * 0.09f) { hv.part = HTab; hv.tab = t; }
+            for (int t = 0; t < kTabs; ++t)   // the nearest name
+                if (hv.part != HTab || std::fabs(X - tabX[t]) < std::fabs(X - tabX[hv.tab])) { hv.part = HTab; hv.tab = t; }
         return;
     }
     const int tab = std::clamp(v.tab, 0, kTabs - 1);

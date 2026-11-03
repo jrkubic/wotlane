@@ -83,11 +83,15 @@ A master server keeps the list of public servers, so players can find them witho
    host can change the stage or wins and start again. QUIT from the pause menu does the same.
 
 Command line alternative to the launcher (`tools\net_lobby.py`, prints the environment for `wotm.exe` when the match starts):
-`--create <lobby> --name Ana --monster 3 [--password <pw>] [--stage N] [--wins N] --start-with <players>` hosts a lobby (the code goes
+`--create <lobby> --name Ana --monster 3 [--password <pw>] [--stage N] [--wins N] [--mods jump,fast,turbo] --start-with <players>` hosts a lobby (the code goes
 to the console) and starts once that many players are in; `--code <code> --name Bia --monster 1 [--password <pw>]` joins one;
 `--list` shows the open lobbies.
 
 ## What is different online
+
+- Gameplay modifiers (Super Jump, Fast Monsters, Turbo) are the lobby's: the host sets them (`SET mods=<list>` in the lobby
+  protocol, `--mods` in `net_lobby.py`), every PC gets them in `MATCH` (`WOTM_MODIFIERS`), and the MODIFIERS tab shows them locked. A PC
+  with a different list is refused at join. Turbo doubles the fields per frame during the fight only: menus keep their speed.
 
 - Endless free-for-all with Wins to end 0: knocked-out monsters get back up, no end-of-match screen; QUIT from the pause menu (or closing the window) leaves. With a wins
   target (the host's **Wins to end**) the first to reach it ends the match with the game's PLAY AGAIN / REBUILD LEVEL /
