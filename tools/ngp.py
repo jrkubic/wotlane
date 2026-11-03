@@ -7,7 +7,7 @@ PS2 RAM addresses, so `Image.u32(addr)` takes the address as the game sees it.
 Writes nothing from the game: it reads the user's disc at run time.
 
 Mesh (`HierObject::polyPkt`): a DMA sub-chain (QWC/ID=ret tag, 8 bytes + 8 bytes of padding) followed by a
-VIF stream for the VU1 microcode. See `decode_object` and docs/FORMATOS.md ("Malhas").
+VIF stream for the VU1 microcode. See `decode_object` and docs/FORMATOS.md ("Meshes").
 """
 import struct
 import sys

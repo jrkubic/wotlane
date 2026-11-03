@@ -3,7 +3,7 @@
 Usage: python tools/mcsave.py <folder that contains mc0/ and mc1/>
 
 Same format as the save.json the runtime writes (native/runtime/wotm_save.inc), so the two can be compared. Block layout
-in docs/FORMATOS.md, "Save do memory card". Read-only.
+in docs/FORMATOS.md, "Memory card save". Read-only.
 """
 import json
 import os

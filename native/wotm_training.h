@@ -1,6 +1,6 @@
-// Training mode (NATIVO.md, "Runtime: modo treino"): state shared between the EE thread (hooks in native/runtime/wotm_training.inc,
+// Training mode (NATIVO.md, "Runtime: training mode"): state shared between the EE thread (hooks in native/runtime/wotm_training.inc,
 // included by wotm_overrides.cpp; volumes captured in wotmCaptureFrame in wotm_live.inc) and the window (drawn in
-// wotm_live.inc). Guide in docs/passos/NATIVO.md, "Modo treino"; investigations in git show 635fd3c:docs/investigacoes/2026-10-23/treino_*.md.
+// wotm_live.inc). Guide in docs/passos/NATIVO.md, "Runtime: training mode"; investigations in git show 635fd3c:docs/investigacoes/2026-10-23/treino_*.md.
 #pragma once
 #include <atomic>
 #include <chrono>

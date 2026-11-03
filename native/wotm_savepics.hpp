@@ -1,4 +1,4 @@
-// Images for the save list (NATIVO.md, "Save em JSON"): on the left of the modal, the wide picture of the save's level with the
+// Images for the save list (NATIVO.md, "Save in JSON"): on the left of the modal, the wide picture of the save's level with the
 // monster's logo on top of it, as in the menu's level and monster selection. They come from SHELL/SHELL.TEX and SHELL/SHELL.RTX on
 // the disc (the same pair the menu loads; after a fight it is no longer in memory, so it is read straight from the disc).
 //

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Poses a WotM monster straight from the disc, without the game: evaluates an animation (curves) and builds the part
 matrices (ANIM_XFORM), the skeleton and the bone palette for the skinned meshes, the way the game does during the hierarchy
-walk. Format in docs/FORMATOS.md ("Animacao") and docs/passos/MODELOS_3D.md.
+walk. Format in docs/FORMATOS.md ("Animation") and docs/passos/MODELOS_3D.md.
 
   python tools/pose.py disc/MON/MONKEY0.NGP --list                      # the monster's animations (id, frames, channels)
   python tools/pose.py disc/MON/MONKEY0.NGP out.glb                     # idle pose (animation 90) at frame 0

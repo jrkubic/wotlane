@@ -695,7 +695,7 @@ static Capture &capture()
     static Capture c;
     return c;
 }
-// Frame interpolation (INTERPOLATE FRAMES option, WOTM_INTERP; NATIVO.md, "Taxa de apresentacao"): a clock shared by the
+// Frame interpolation (INTERPOLATE FRAMES option, WOTM_INTERP; NATIVO.md, "Presentation rate"): a clock shared by the
 // two threads (Snapshot::hostT stamp) and the per-sphere culling margin, which the window turns on and the capture reads (Scene::cullMargin)
 static double hostNow()
 {
@@ -1901,7 +1901,7 @@ static bool wotmDrawNative(const uint8_t *rdram)
         const char *e = std::getenv("WOTM_INTERP");
         return e && std::strstr(e, "redraw") != nullptr;
     }();
-    // Frame interpolation (INTERPOLATE FRAMES option, on by default; NATIVO.md, "Taxa de apresentacao"): with the
+    // Frame interpolation (INTERPOLATE FRAMES option, on by default; NATIVO.md, "Presentation rate"): with the
     // present above 60 Hz (or up to 60 with the game at 30: slowGame), each present draws the blend of A (S.prev) and B
     // (S.snap) at instant D of the display clock, one game frame
     // behind the newest (plus a margin, so a late capture still arrives before alpha hits 1). With no new frame the

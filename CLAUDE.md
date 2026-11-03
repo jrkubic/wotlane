@@ -41,7 +41,7 @@ Read before starting: `README.md` (setup), `docs/ANALYSIS.md` (what's known abou
 - `python tools/doclint.py` checks the lines a commit adds plus the whole `TODO.md`; the git pre-commit hook runs it automatically (enable once per clone: `git config core.hooksPath tools/githooks`). An old line that's only edited isn't held to rules it already broke; `--all` lists what's still left to migrate.
 
 ## Port workflow (changes in `native/`)
-1. Before touching anything: `tools\corpus.ps1 -Check` saves the baseline (`<runtime>\corpus\resumo_<date>.csv`, "summary"; capture the corpus once with `-Capture`). What's broken or missing comes from the inventory (`VU1CHECK.md`, "Inventário do port", the port inventory), not from memory.
+1. Before touching anything: `tools\corpus.ps1 -Check` saves the baseline (`<runtime>\corpus\resumo_<date>.csv`, "summary"; capture the corpus once with `-Capture`). What's broken or missing comes from the inventory (`VU1CHECK.md`, "Port inventory"), not from memory.
 2. Edit `native/*.hpp` or `native/runtime/*.inc|.cpp` (hooks and game code that run inside the runtime). Refer to addresses by name (`wotm::sym::`/`wotm::fn::` from `native/wotm_syms.h`), never as raw numbers. A new diagnostic variable goes into the table in `NATIVO.md` (`python tools/wotm_env.py` checks it).
 3. `build_runtime.bat` in the repo root (configures and compiles `build_dev`, without LTCG; ninja doesn't track `native/`, the script handles that). Never the old folder's `build.bat` with LTCG.
 4. Check: `tools\corpus.ps1 -Check -Baseline <baseline csv>` tells you what got worse; `run_live.bat` to see it on screen; `tools\lote.ps1` for batches of fights with a watchdog (`lote` = batch).

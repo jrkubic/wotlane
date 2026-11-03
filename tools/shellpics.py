@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exports the menu's wide stage pictures and monster logos (SHELL/SHELL.TEX + SHELL.RTX) to PNG, the way the native save
-list shows them (native/wotm_savepics.hpp, NATIVO.md, "Save em JSON"). Used by the web viewer (VIEWER_WEB.md) for the
+list shows them (native/wotm_savepics.hpp, NATIVO.md, "Save in JSON"). Used by the web viewer (VIEWER_WEB.md) for the
 page background.
 
   python tools/shellpics.py disc/SHELL out/          # out/stages/01_midtown_park.png (+ stages/thumbs/, 128x64) and

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Reader and writer for War of the Monsters' sound formats (989snd): .BNK (SBlk v1), .VPK and .VAG. Documented in
-docs/FORMATOS.md ("Som").
+docs/FORMATOS.md ("Sound").
 
   python tools/snd989.py bnk disc/SND/SHELL_S.BNK            # sounds and grains of a bank
   python tools/snd989.py stats disc/SND                       # grain types/flags used across all banks

@@ -26,7 +26,7 @@ $checks = [ordered]@{
     'largada_4'     = @{ Env = 'WOTM_MATCH=3,1,2,5,1;WOTM_PLAYERS=4;WOTM_SPLITLOG=1'; Secs = 30
                          Expect = 'spawn: m_monsters\[0\]|||spawn: m_monsters\[1\]|||spawn: m_monsters\[2\]|||spawn: m_monsters\[3\]'
                          Reject = 'spawn: m_monsters\[[0-3]\] \(playerNum \d\) at (\S+)\r?\n[\s\S]*?spawn: m_monsters\[[0-3]\] \(playerNum \d\) at \1\r?\n|||\[CRASH\]|||\[watchdog\] FROZE' }
-    # motion blur with 4 views: MotionBlurAA::init receives all 4 (views at 0x6F8578; its bss has room for 4, NATIVO.md, "Tela dividida de 3 e 4 jogadores")
+    # motion blur with 4 views: MotionBlurAA::init receives all 4 (views at 0x6F8578; its bss has room for 4, NATIVO.md, "3 and 4 player split screen")
     'borrao_4'      = @{ Env = 'WOTM_MATCH=3,1,2,5,1;WOTM_PLAYERS=4;WOTM_AIVSAI=1;PS2X_STATS=1;PS2X_PEEK=6F8578'; Secs = 35
                          Expect = '6f8578=00000004'
                          Reject = '6f8578=00000002|||\[CRASH\]|||\[watchdog\] FROZE' }

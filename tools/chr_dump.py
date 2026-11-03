@@ -8,7 +8,7 @@ Usage:
     python tools/chr_dump.py disc/RST/*.CHR                 # several monsters
     python tools/chr_dump.py disc/RST/*.CHR --specials      # the monster's special, crowd control and the stamina gain
 
-Format (docs/FORMATOS.md, "Personagem (.CHR)"): a 0xC-byte header followed by keys {u32 id; u32 size including the header;
+Format (docs/FORMATOS.md, "Character"): a 0xC-byte header followed by keys {u32 id; u32 size including the header;
 data}, read by charreset::readKey. Key 0xFCC holds the StatePunch configs: 10 combo positions (1st hit, 2nd hit...)
 x 6 attack types, each 0xA0 bytes starting at key + 0x10 + pos*0x3C0 + type*0xA0. The game copies them into the
 Monster's StatePunch (Monster + 0x8470 + 0x20 + pos*0x420 + type*0xB0, the PunchConfig), which training mode reads from RAM.

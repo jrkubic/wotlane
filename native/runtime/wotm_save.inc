@@ -1,4 +1,4 @@
-// JSON save (NATIVO.md, "Save em JSON"). Included by wotm_overrides.cpp.
+// JSON save (NATIVO.md, "Save in JSON"). Included by wotm_overrides.cpp.
 //
 // The game still writes and reads the memory card's binary blocks through the runtime stub (mc0/BASCUS-97197: the options, 0x380
 // bytes, and savegame.dat, the adventure, 0x280; card 2 in mc1/). A single JSON next to the card folder (save.json) becomes the
@@ -8,7 +8,7 @@
 //   - on entry to MonsterMc::stdExit (end of the sequence), if the game wrote any binary, the JSON is updated from them.
 // With no JSON and with binaries (an old save), the first stdInit creates the JSON; if the JSON lacks the slots of a card that has
 // saved adventures, they are imported instead of erased. Keys the code doesn't know stay in the file.
-// WOTM_SAVEJSON=0 turns it off (mc0/ only, the old way). Block layout in docs/FORMATOS.md, "Save do memory card"; tools/mcsave.py shows the same JSON.
+// WOTM_SAVEJSON=0 turns it off (mc0/ only, the old way). Block layout in docs/FORMATOS.md, "Memory card save"; tools/mcsave.py shows the same JSON.
 
 #include "wotm_json.hpp"
 #include "wotm_mods.hpp"   // mod skins: the slot's costume by name
@@ -174,7 +174,7 @@ namespace wotm_save
         return v && v->isInt() ? static_cast<uint32_t>(v->asInt()) : 0u;
     }
 
-    // ---- adventure slot costume (MODS.md, "Skins"; NATIVO.md, "Save em JSON") ----
+    // ---- adventure slot costume (MODS.md, "Skins"; NATIVO.md, "Save in JSON") ----
     // Disc costumes (0..3) stay as integers; a mod skin, as "monster/id" ("togera/green"). A skin's index (4, 5...) is only valid
     // for this run (wotm_mods.hpp) and never goes into the JSON. An index that doesn't exist this session never goes into the binary
     // or into m_costume (the game would ask for a nonexistent MON/<PREFIX>N.* and relocate garbage): without the skin, costume 0.
@@ -576,7 +576,7 @@ namespace wotm_save
         restamp();
     }
 
-    // ---- direct saving, without the card pages (NATIVO.md, "Save em JSON") ----
+    // ---- direct saving, without the card pages (NATIVO.md, "Save in JSON") ----
     //
     // Boot, options, unlock, endurance and end of story no longer open the card: each one's MonsterMc::update* (called in a loop
     // until MonsterMc+4) becomes a direct copy between RAM and the JSON and finishes within the same call. The adventure
@@ -789,7 +789,7 @@ namespace wotm_save
         (runtime.registerFunction(kSeqHooks[I].fn, &seqReplaced<I>), ...);
     }
 
-    // ---- adventure save list, with no boxes or card (NATIVO.md, "Save em JSON") ----
+    // ---- adventure save list, with no boxes or card (NATIVO.md, "Save in JSON") ----
     //
     // Load: updateStoryModeLoad moves the menu camera to the boxes (McPrepBoxScreen) and opens McLoadGameBoxes (the "slot 1 /
     // slot 2" menu). That page's update becomes a modal with save.json's list (up to 99 slots): on the left, the chosen save (monster,

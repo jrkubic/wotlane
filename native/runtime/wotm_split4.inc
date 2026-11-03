@@ -1,4 +1,4 @@
-// 3- and 4-player split screen (NATIVO.md, "Tela dividida de 3 e 4 jogadores"). Included by wotm_overrides.cpp. Always installed: acts when the Shell
+// 3- and 4-player split screen (NATIVO.md, "3 and 4 player split screen"). Included by wotm_overrides.cpp. Always installed: acts when the Shell
 // has 3 or 4 players (m_numPlayers), set by the multiplayer menu (wotm_padsel.inc) or by WOTM_MATCH with WOTM_PLAYERS=3 or 4.
 //
 // The engine already has almost everything for 4 views: viewInfo, worldCtx and viewDb with 5 entries (4 is the shadow's), 4 cameras
@@ -24,7 +24,7 @@
 //     the same file) and become players again in InitPlayers; the load order is that of its duplicate count (players, then AIs).
 //     Players 3 and 4's costumes have no place in the Shell: they live in g_extraCostume, and SetPlayerMonster gets them instead of
 //     the m_costume[1] that InitPlayers sends to every player after player 1.
-//   - Motion blur: no hook; MotionBlurAA's bss has packets for 4 views ([2][2][4][0x100] at 0x7319F0, NATIVO.md, "Tela dividida de 3 e 4 jogadores").
+//   - Motion blur: no hook; MotionBlurAA's bss has packets for 4 views ([2][2][4][0x100] at 0x7319F0, NATIVO.md, "3 and 4 player split screen").
 //   - HUD: Hud::initAfter and Hud::update return immediately with index >= 2. HUD 2/3 becomes a copy of the HUD in the same column and runs
 //     update like it, with its own view's monster, camera and bar (hudInitAfter, hudUpdate).
 //   - Camera on POV 3 (parked): cameras 2 and 3 had no park position and went to the origin (at the start and on death).

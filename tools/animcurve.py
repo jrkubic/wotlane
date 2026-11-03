@@ -1,4 +1,4 @@
-"""Evaluator for WotM animation curves (port of src/common/AnimCurve.cpp; format in docs/FORMATOS.md, "Animacao").
+"""Evaluator for WotM animation curves (port of src/common/AnimCurve.cpp; format in docs/FORMATOS.md, "Animation").
 
 `Curve(mem, address).eval(t)`: `mem` is any reader with u8/u16/s16/f32 by address (ngp.Image, a RAM dump...).
 Checked on 2026-10-20 against the channels (`animOutput.val`) the game computed during a fight: 128 of 130 channels match (the

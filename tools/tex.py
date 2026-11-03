@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WotM textures (.TEX and .RTX): lists, exports to PNG and injects PNG/TGA back. Format in docs/FORMATOS.md ("Texturas").
+"""WotM textures (.TEX and .RTX): lists, exports to PNG and injects PNG/TGA back. Format in docs/FORMATOS.md ("Textures").
 
   python tools/tex.py list  disc/MON/CONGAR1.TEX                   # the file's packets (texId, format, size)
   python tools/tex.py export disc/MON/CONGAR1.TEX out/             # PNGs + manifest.json (finds sibling .RTX and .NGP)

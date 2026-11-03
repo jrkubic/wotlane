@@ -1,4 +1,4 @@
-// Autosave icon (NATIVO.md, "Save em JSON"): the 3D film reel the game writes as its memory card icon
+// Autosave icon (NATIVO.md, "Save in JSON"): the 3D film reel the game writes as its memory card icon
 // (MEMCRD/ICON.ICO on the disc) spins in the bottom-right corner for 1 s on every write of save.json (wotm_save.inc bumps
 // g_wotmSaveCount on the EE thread; the window draws it here, from inside wotmDrawScene).
 //

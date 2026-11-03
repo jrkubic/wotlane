@@ -1,4 +1,4 @@
-// Elimination and minigames with 3 and 4 players (NATIVO.md, "Eliminacao e minigames com 3 e 4"). Included by wotm_overrides.cpp after
+// Elimination and minigames with 3 and 4 players (NATIVO.md, "Elimination and minigames with 3 and 4"). Included by wotm_overrides.cpp after
 // wotm_split4.inc (quadrant screen, load and pads for players 3 and 4), whose hooks these wrap. Acts only with 3 or 4
 // players in the Shell (m_numPlayers), set by the multiplayer menu (wotm_padsel.inc); with 1 or 2 everything is retail.
 //

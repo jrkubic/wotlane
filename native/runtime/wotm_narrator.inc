@@ -82,7 +82,7 @@ static float effectsVolume()
 #endif
 }
 
-// File for each stage (Shell::m_levelNum, GameLevelNames; GLOSSARIO.md, "Fases"). The dev team's test stages (17..24) have none.
+// File for each stage (Shell::m_levelNum, GameLevelNames; GLOSSARIO.md, "Stages"). The dev team's test stages (17..24) have none.
 static const char *levelName(int level)
 {
     static const char *const kLevels[28] = {

@@ -1,4 +1,4 @@
-// Training mode (NATIVO.md, "Runtime: modo treino"; WOTM_TRAINING=1 or the menu's TRAINING row): hooks on the EE thread that record what the game tests for
+// Training mode (NATIVO.md, "Runtime: training mode"; WOTM_TRAINING=1 or the menu's TRAINING row): hooks on the EE thread that record what the game tests for
 // attacks and the damage of each. Included by wotm_overrides.cpp; shared state in native/wotm_training.h; the body volumes
 // are read in wotmCaptureFrame (wotm_live.inc) and the drawing and options panel (pause menu) are in wotm_live.inc. Investigations:
 // git show 635fd3c:docs/investigacoes/2026-10-23/treino_hitboxes.md and treino_dano.md.

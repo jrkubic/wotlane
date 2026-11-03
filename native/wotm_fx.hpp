@@ -3,7 +3,7 @@
 // In retail, `particlePrepDraw` (particleMove + each type's *PacketBuild) builds one VIF packet per system and `particleDraw`
 // (0x21B378; the loop that waits on VU1 is at 0x21B8A0) sends those packets to the VU1 particle microcode, which expands
 // each particle into a sprite/line/strip. Here the cut is before VU1: we read each system's state (`_ParticleType`,
-// include/hieri_types.h) and draw it directly. Details and what is still a hypothesis: docs/FORMATOS.md ("Particulas").
+// include/hieri_types.h) and draw it directly. Details and what is still a hypothesis: docs/FORMATOS.md ("Particles and effects").
 //
 // Confirmed in the CPU code (asm of common/particle and common/partdraw):
 //   - fx[100] at 0x5BA280 (0x2EE0 bytes each); active list: fxActiveTop (0x6F88EC) -> fxList[i].next (+8, 12 bytes per entry), -1 = end
@@ -1800,7 +1800,7 @@ public:
 
     // Particle fog: the microprograms' common context (qwords 0-7, from 0x256B90) carries fogFA in q4.w and fogFB in q5.w, the
     // same as vu1FogParams; VU1 computes F = min(fogFA + fogFB / W, 255) and drops the particle with F < 1 (CLIP), with or without FGE.
-    // Measured on METRO (fogFA -107.9, fogFB 326,600: W > ~3,000): the pedestrians disappear there (VU1CHECK.md, "Explicadas").
+    // Measured on METRO (fogFA -107.9, fogFB 326,600: W > ~3,000): the pedestrians disappear there (VU1CHECK.md, "Explained").
     static void setFog(const Ram &ram, FxView &v, const float row3[4], const float eye[3]) {
         v.fogFA = ram.f32(addr::vu1FogParams);
         v.fogFB = ram.f32(addr::vu1FogParams + 12);

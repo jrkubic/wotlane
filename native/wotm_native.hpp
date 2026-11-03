@@ -1501,7 +1501,7 @@ public:
     // placed in the light direction (view 4, at `radius * factor` from the origin) into a small texture, filtered and reprojected onto
     // nearby objects (psBldBlkRObjs). Here: the silhouette is rasterized on the CPU into an orthographic frame in light space (without
     // switching framebuffers inside BeginMode3D, which would break the runtime's render texture) and the triangles of nearby objects are
-    // redrawn with that projected texture. docs/passos/NATIVO.md ("Sombras").
+    // redrawn with that projected texture. docs/passos/NATIVO.md ("Projected shadows").
     std::vector<ShadowBlocker> shadows;
 
     // Active blockers, like psFindActiveBlockers: shadows on (psSetShadowOnOff), entry in use, cs drawable and visible in view 0
@@ -5185,7 +5185,7 @@ private:
         }
         case 39: {                                                                          // INTERACTIVE_STATE (+4 whichChild, +0xC child)
             // A destructible's child is a DESTRUCTIBLE: the game picks the state (0 = intact, then damaged/ruined...) in
-            // `whichChild` of this parent node (docs/FORMATOS.md, "Destrutiveis"); traversal descends only into child[whichChild].child.
+            // `whichChild` of this parent node (docs/FORMATOS.md, "Destructibles"); traversal descends only into child[whichChild].child.
             const uint32_t c = ram.u32(node + 0xC);
             if (!ram.ok(c)) break;
             if ((ram.u32(c) & 63) == 31) {

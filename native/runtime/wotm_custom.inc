@@ -1,4 +1,4 @@
-// Custom monsters (MODS.md, "Monstros custom"): monsters the game doesn't offer at selection, played in a regular fight. The bosses
+// Custom monsters (MODS.md, "Custom monsters"): monsters the game doesn't offer at selection, played in a regular fight. The bosses
 // that are Monsters: Goliath Prime (type 13, "assboss", MON/ASSBOSS1.*), the adventure boss in canyon2, and Cerebulon's last two
 // forms in the final stage (14 "jelly", MON/JELLY0.*, and 15 "final", MON/FINAL0.*; the first form, the Mecha, is a piece of the
 // stage, not a Monster). Included by wotm_overrides.cpp, after wotm_skins.inc. Investigation: git show

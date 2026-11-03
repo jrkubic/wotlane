@@ -112,11 +112,11 @@ std::atomic<bool> g_wotmFreeCamPad{false};
 std::mutex g_wotmFreeCamM;
 WotmFreeCamPose g_wotmFreeCamPose;
 
-// JSON save next to mc0/ (NATIVO.md, "Save em JSON"): hooks on MonsterMc::stdInit/stdExit.
+// JSON save next to mc0/ (NATIVO.md, "Save in JSON"): hooks on MonsterMc::stdInit/stdExit.
 #include "wotm_save.inc"
 // Main menu "Press start": X counts as Start, and the button already works during the transition.
 #include "wotm_menu.inc"
-// 3- and 4-player split screen (NATIVO.md, "Tela dividida de 3 e 4 jogadores"; WOTM_PLAYERS=3 or 4): views, cameras, load and pads 3 and 4.
+// 3- and 4-player split screen (NATIVO.md, "3 and 4 player split screen"; WOTM_PLAYERS=3 or 4): views, cameras, load and pads 3 and 4.
 #include "wotm_split4.inc"
 // Elimination and minigames with 3 and 4 players (on top of the wotm_split4.inc hooks)
 #include "wotm_modes4.inc"
@@ -1179,7 +1179,7 @@ namespace
     // checks the ceiling. Above ~0x1F10000 there is live data (and the zip buffer at 0x1F7F840); measured on 2026-10-18, the block at 0x1B70000
     // is left over from the menu and can be overwritten (Metro with 2 monsters goes up to 0x1D0C380). Logs when it changes and warns near the ceiling.
     constexpr uint32_t kFileStatus = wotm::sym::fileStatus, kLoadBase = 0xA00000u, kLoadCeiling = 0x1F10000u;
-    // RAM above 32 MB (NATIVO.md, "RAM de 64 MB"): the runtime has 64 MB (PS2_RAM_SIZE) and the game sees 32 (PS2_GUEST_RAM_SIZE: stack, heap and
+    // RAM above 32 MB (NATIVO.md, "64 MB RAM"): the runtime has 64 MB (PS2_RAM_SIZE) and the game sees 32 (PS2_GUEST_RAM_SIZE: stack, heap and
     // GetMemorySize the same as on the PS2). On entry to Shell::LoadMonstersDB the next load address (fileStatus.ngpAddr[ngpLoaded],
     // right after the stage's NGP) jumps to 0x2000000: the monsters' NGPs and, behind them, the RTX and TEX of the stage and monsters live in the
     // upper area, and only the stage's NGP stays below. Relocation (dbsRelocateViaPtrListFile) adds "address - 0xA00000" in 32 bits, so

@@ -1,5 +1,5 @@
 // wotm_levelsel.inc: stage select (game screen 8, screenLevelSelect) with the stages the retail game doesn't list plus a RANDOM entry
-// (included by wotm_live.inc after wotm_padsel.inc; global scope of ps2_runtime.cpp). NATIVO.md, "Selecao de fase".
+// (included by wotm_live.inc after wotm_padsel.inc; global scope of ps2_runtime.cpp). NATIVO.md, "Stage selection".
 //
 // EE thread (screenLevelSelect hook): on entry, if g_levelList is one of the four retail lists (PO_1PFreeForAll,
 // PO_MPFreeForAll, PO_1PEndurance, PO_MPElimination), it is repointed to a copy at the top of RAM (kList) holding the retail

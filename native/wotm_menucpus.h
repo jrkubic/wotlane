@@ -1,4 +1,4 @@
-// More CPUs in free for all than the game's menu allows (NATIVO.md, "Mais CPUs pelo menu"): up to 8 monsters in the fight, 0 to 7 CPUs
+// More CPUs in free for all than the game's menu allows (NATIVO.md, "More CPUs from the menu"): up to 8 monsters in the fight, 0 to 7 CPUs
 // with 1 player (screen 12) and 0 to 8 - N with N = 2 to 4 (screen 13). The screens' hooks (wotm_overrides.cpp) store the chosen number;
 // the menu carries on with what the game knows (3 CPUs with 1 player, 2 with 2, none with 3 and 4), and wotm_padsel.inc puts the extra
 // CPUs into the selection and writes the real number when the stage is confirmed (1 and 2 players) or on leaving the selection (3 and 4).

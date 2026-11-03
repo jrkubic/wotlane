@@ -57,7 +57,7 @@ inline const MonsterInfo *customBase(const std::string &s) {
     return nullptr;
 }
 
-// Custom monster (mods/<mod>/monsters/<folder>/monster.json; MODS.md, "Monstros custom"): a new monster on the select screen (CUSTOM
+// Custom monster (mods/<mod>/monsters/<folder>/monster.json; MODS.md, "Custom monsters"): a new monster on the select screen (CUSTOM
 // slot), which for now uses the code, model and files of one of the game's types (`base`). Its own files (another prefix, a free
 // type) come later; the format already reserves "files".
 struct Custom {
