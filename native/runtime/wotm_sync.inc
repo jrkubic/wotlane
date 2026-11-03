@@ -10,6 +10,8 @@
 //     (tools/statediff.py compares two runs and reports the first frame and the blocks that differ).
 //   WOTM_STATEDUMP=<index>: writes the game's RAM (32 MB) at that frame to state_<index>.bin in the current folder (the discroot).
 //   WOTM_CALLTRACE=<file>[,<index>]: register hashes at every guest call while frame <index> is computed (see callTraced).
+//   WOTM_CALLDUMP=<call>[,<call>...]: with WOTM_CALLTRACE, the raw VU0 and FPU registers at those calls of the trace (see dumpRegisters).
+//   WOTM_PADLOG=<frames>: logs every scePad* call the game makes in its first <frames> frames (see padLogged).
 //   WOTM_NET=<host>:<port>, WOTM_NETTOKEN=<token>, WOTM_NETNAME=<name>: network match through wotm_server (see "Network match" below).
 namespace wotm_sync
 {
@@ -73,6 +75,7 @@ namespace wotm_sync
     std::vector<InputRecord> g_inputPlay;
     bool g_levelLoaded = false;   // a level has been loaded (recording and replay count its frames)
     uint32_t g_index = 0;         // frame since the level load
+    int g_mods = 0;               // gameplay modifiers of the current fight (wotm::modifiers bits; wotm_modifiers.inc latches them)
     bool g_loggedLocal = false, g_loggedApplied = false;
 
     // Network match (WOTM_NET=<host>:<port> and WOTM_NETTOKEN=<token>, given by the lobby: the launcher or tools/net_lobby.py). Every PC
@@ -203,6 +206,35 @@ namespace wotm_sync
     FILE *g_traceFile = nullptr;
     uint32_t g_traceAt = 1;
     std::vector<const R5900Context *> g_traceThreads;
+    // WOTM_CALLDUMP=<call>[,<call>...]: at those records of the trace, the raw VU0 and FPU registers in hex on stderr, to see which
+    // register a differing vu0/fpr hash comes from (and whether it holds a NaN/infinity, which x86 and ARM encode differently)
+    std::vector<uint32_t> g_dumpCalls;
+    uint32_t g_traceCalls = 0;
+
+    void dumpRegisters(const R5900Context *ctx, uint32_t call)
+    {
+        auto lanes = [](const __m128 &v, uint32_t (&w)[4]) { std::memcpy(w, &v, sizeof w); };
+        uint32_t w[4];
+        for (int k = 0; k < 32; ++k)
+        {
+            lanes(ctx->vu0_vf[k], w);
+            std::fprintf(stderr, "[sync] call %u vf%02d %08x %08x %08x %08x\n", call, k, w[0], w[1], w[2], w[3]);
+        }
+        lanes(ctx->vu0_acc, w);
+        std::fprintf(stderr, "[sync] call %u acc  %08x %08x %08x %08x\n", call, w[0], w[1], w[2], w[3]);
+        uint32_t q, p, i;
+        std::memcpy(&q, &ctx->vu0_q, 4);
+        std::memcpy(&p, &ctx->vu0_p, 4);
+        std::memcpy(&i, &ctx->vu0_i, 4);
+        std::fprintf(stderr, "[sync] call %u q %08x p %08x i %08x\n", call, q, p, i);
+        for (int k = 0; k < 32; k += 8)
+        {
+            uint32_t f[8];
+            std::memcpy(f, &ctx->f[k], sizeof f);
+            std::fprintf(stderr, "[sync] call %u f%02d-f%02d %08x %08x %08x %08x %08x %08x %08x %08x\n", call, k, k + 7, f[0], f[1], f[2],
+                         f[3], f[4], f[5], f[6], f[7]);
+        }
+    }
 
     void callTraced(const R5900Context *ctx, uint32_t target)
     {
@@ -226,6 +258,9 @@ namespace wotm_sync
                            hashBytes(reinterpret_cast<const uint8_t *>(ctx->f), sizeof ctx->f),
                            hashBytes(reinterpret_cast<const uint8_t *>(&vu), sizeof vu)};
         std::fwrite(&r, sizeof r, 1, g_traceFile);
+        if (std::find(g_dumpCalls.begin(), g_dumpCalls.end(), g_traceCalls) != g_dumpCalls.end())
+            dumpRegisters(ctx, g_traceCalls);
+        ++g_traceCalls;
     }
 
     void callTraceInit(const char *spec)
@@ -240,6 +275,13 @@ namespace wotm_sync
             return (void)std::fprintf(stderr, "[sync] WOTM_CALLTRACE: cannot write %s\n", path.c_str());
         g_wotmCallTrace = &callTraced;
         std::fprintf(stderr, "[sync] call trace of frame %u into %s\n", g_traceAt, path.c_str());
+        if (const char *e = std::getenv("WOTM_CALLDUMP"); e && *e)
+            for (const char *s = e; *s;)
+            {
+                char *end = nullptr;
+                g_dumpCalls.push_back(static_cast<uint32_t>(std::strtoul(s, &end, 10)));
+                s = *end == ',' ? end + 1 : end + std::strlen(end);
+            }
     }
 
     // frame boundary after frame `index`: the traced frame is complete
@@ -254,6 +296,38 @@ namespace wotm_sync
         std::fprintf(stderr, "[sync] call trace of frame %u: %ld calls, %zu thread(s)\n", index, bytes / static_cast<long>(sizeof(CallRecord)),
                      g_traceThreads.size());
     }
+    // WOTM_PADLOG=<frames>: logs the game's scePadGetState/InfoMode/SetMainMode/Read calls (port, slot, a2, a3, return value and the
+    // first 8 bytes scePadRead wrote) during frames 0..<frames>-1 after the level load. The pad stubs answer from this machine (ports
+    // open, pad mode, local devices): two machines in one match must log the same lines.
+    uint32_t g_padLogFrames = 0;
+    constexpr uint32_t kPadLogFns[] = {wotm::fn::scePadGetState, wotm::fn::scePadInfoMode, wotm::fn::scePadSetMainMode, wotm::fn::scePadRead};
+    constexpr const char *kPadLogNames[] = {"scePadGetState", "scePadInfoMode", "scePadSetMainMode", "scePadRead"};
+    PS2Runtime::RecompiledFunction g_padLogOrig[4] = {};
+
+    template <int K>
+    void padLogged(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t port = GPR_U32(ctx, 4), slot = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), a3 = GPR_U32(ctx, 7);
+        g_padLogOrig[K](rdram, ctx, runtime);
+        if (!g_levelLoaded || g_index >= g_padLogFrames)
+            return;
+        std::fprintf(stderr, "[padlog] frame %u %s(port %u, slot %u, %08x, %08x) -> %d", g_index, kPadLogNames[K], port, slot, a2, a3,
+                     GPR_S32(ctx, 2));
+        if (K == 3)
+            std::fprintf(stderr, " data %08x %08x", Ps2FastRead32(rdram, a2), Ps2FastRead32(rdram, a2 + 4));
+        std::fputc('\n', stderr);
+    }
+
+    template <int... K>
+    void padLogInstall(PS2Runtime &runtime, std::integer_sequence<int, K...>)
+    {
+        const PS2Runtime::RecompiledFunction hooks[] = {&padLogged<K>...};
+        for (int k = 0; k < 4; ++k)
+            if ((g_padLogOrig[k] = runtime.lookupFunction(kPadLogFns[k])))
+                runtime.registerFunction(kPadLogFns[k], hooks[k]);
+        std::fprintf(stderr, "[sync] pad log of frames 0..%u (WOTM_PADLOG)\n", g_padLogFrames - 1u);
+    }
+
     // WOTM_STATERING=<n>: copy of the RAM of the last n frames, written (state_<index>.bin) when the network match stops; a desync is
     // only seen at the next hash (up to 32 frames later), so the copy of the first differing frame is still here
     // WOTM_STATERING=<n>:<start>+<size>,...: only those ranges (the rest of the file is zeros); copying 32 MB per frame changes the
@@ -364,8 +438,8 @@ namespace wotm_sync
     }
 
     // End of the frame: the next one only starts with everyone's inputs for it. Stalled for more than 250 ms, the screen says who is
-    // missing; the stalled time is taken out of the EE's vsync deadlines (without that, the overdue vsyncs became a burst of frames
-    // afterwards).
+    // missing; afterwards shiftHostDeadlines drops the vsyncs that fell due during the stall (without that, they became a burst of
+    // frames), and the game scheduler's vblank grid, which kept running, gives the next one on time.
     uint32_t g_netStalls = 0;
     double g_netStallMs = 0.0;
 
@@ -453,6 +527,11 @@ namespace wotm_sync
         std::snprintf(mods, sizeof mods, "%016llx", static_cast<unsigned long long>(wotm::mods::digest(wotm::mods::Registry::get().dir())));
         all += std::string("mods=") + mods + ";";
         std::fprintf(stderr, "[net] mods: %s\n", mods);
+        // gameplay modifiers (the lobby's WOTM_MODIFIERS) in canonical order: "turbo,jump" and "jump,turbo" are the same match
+        int modBits = 0;
+        const char *modList = std::getenv("WOTM_MODIFIERS");
+        wotm::modifiers::parse(modList ? modList : "", modBits);
+        all += "modifiers=" + wotm::modifiers::format(modBits) + ";";
         all.resize((all.size() + 7u) & ~size_t(7), '\0');   // hashBytes reads 8-byte words
         char out[17];
         std::snprintf(out, sizeof out, "%016llx", static_cast<unsigned long long>(hashBytes(reinterpret_cast<const uint8_t *>(all.data()), all.size())));
@@ -544,6 +623,8 @@ namespace wotm_sync
             ringInit(e);
         if (const char *e = std::getenv("WOTM_CALLTRACE"); e && *e)
             callTraceInit(e);
+        if (const char *e = std::getenv("WOTM_PADLOG"); e && (g_padLogFrames = static_cast<uint32_t>(std::atol(e))) > 0)
+            padLogInstall(runtime, std::make_integer_sequence<int, 4>{});
         if (g_fixedStep || g_hashFile || g_dumpAt >= 0)
             std::fprintf(stderr, "[sync] fixed step %d field(s), hash %s, dump at frame %ld\n", g_fixedStep, g_hashFile ? "on" : "off", g_dumpAt);
     }
@@ -571,12 +652,14 @@ namespace wotm_sync
     {
         if (g_fixedStep)
         {
-            const uint32_t step = static_cast<uint32_t>(g_fixedStep);
+            const uint32_t step = static_cast<uint32_t>(wotm::modifiers::fieldsPerFrame(g_fixedStep, g_mods));
             Ps2FastWrite32(rdram, fieldCounter, Ps2FastRead32(rdram, fieldCounterAtStart) + step);
             Ps2FastWrite32(rdram, fieldsForAverage, Ps2FastRead32(rdram, fieldsForAverage) + step);
             g_virtualTics += step * 9619u;
             g_ticCalls = 0;
-            wotmSoundFrame(step);   // sound advances by the same amount, on the game thread (when each sound ends becomes a function of the frames)
+            // sound advances by the frame's real length, on the game thread (when each sound ends becomes a function of the frames);
+            // in a turbo fight that is 1 vsync for 2 fields, so sound keeps its normal speed instead of overfilling the output
+            wotmSoundFrame(static_cast<unsigned>(wotm::modifiers::vsyncsPerFrame(g_fixedStep, g_mods)));
             if (g_inputRec && g_levelLoaded)
             {
                 for (int c = 0; c < kControllers; ++c)

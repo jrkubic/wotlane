@@ -27,15 +27,20 @@ static bool notAGamepad(int i)
     return name.find("keychron") != std::string::npos || name.find("keyboard") != std::string::npos || name.find("mouse") != std::string::npos;
 }
 
+// WOTM_NOINPUT=1: no host device reaches the game (determinism tests; the PS2X_PAD script still applies)
+static bool noInput()
+{
+    static const bool on = [] { const char *e = std::getenv("WOTM_NOINPUT"); return e && e[0] == '1'; }();
+    return on;
+}
+
 // Devices feeding the game's pad `port` (port + 2 * multitap slot: player port + 1)
 static uint32_t devicesOf(int port)
 {
     const bool kbSeparate = wotm::settings::on(wotm::settings::KbSeparate);   // live option (wotm_settings.hpp)
-    // WOTM_NOINPUT=1: no host device reaches the game (determinism tests; the PS2X_PAD script still applies)
-    static const bool noInput = [] { const char *e = std::getenv("WOTM_NOINPUT"); return e && e[0] == '1'; }();
     // network match (WOTM_NET): one player per PC, fed by the keyboard and every pad (the network carries game pad 1)
     static const bool netplay = [] { const char *e = std::getenv("WOTM_NET"); return e && *e; }();
-    if (noInput)
+    if (noInput())
         return 0u;
     int pads[PS2_PAD_MAX_GAMEPADS];
     int n = 0;
@@ -263,9 +268,12 @@ static uint16_t gamepadButtons(int pad)
     return m;
 }
 
-// Player (0..3) the keyboard feeds, by devicesOf's rule (-1: none, under manual selection without the keyboard, or it's left over)
+// Player (0..3) the keyboard feeds, by devicesOf's rule (-1: none, with WOTM_NOINPUT, under manual selection without the keyboard, or
+// it's left over). The mouse belongs to the same player: with none, the modern camera never captures the cursor or takes its motion.
 inline int keyboardPlayer()
 {
+    if (noInput())
+        return -1;
     if (g_manual.load(std::memory_order_relaxed))
     {
         for (int p = 0; p < 4; ++p)

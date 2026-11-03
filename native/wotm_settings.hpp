@@ -21,6 +21,8 @@
 #include <mutex>
 #include <string>
 
+#include "net/wotm_modifiers.hpp"
+
 namespace wotm::settings
 {
 enum Key
@@ -48,6 +50,9 @@ enum Key
     SkipIntro,    // skips the two boot movies (wotm_fmv.hpp); read once, on the first movie: takes effect on the next boot
     Vibration,    // gamepad vibration (wotm_rumble.inc)
     Interp,       // frame interpolation (wotm_live.inc, "interpolacao"), on by default: above 60 Hz (g_presentHz) or with the game at 30
+    SuperJump,    // gameplay modifiers (net/wotm_modifiers.hpp, wotm_modifiers.inc): 0/1 each, latched at fight start
+    FastMonsters,
+    Turbo,
     kKeys
 };
 
@@ -55,8 +60,9 @@ inline constexpr const char *kEnv[kKeys] = {"WOTM_RES",        "WOTM_ASPECT",   
                                             "WOTM_LOCKTOGGLE", "WOTM_ENEMYBARS", "WOTM_DAMAGEPOP",  "WOTM_KBSEPARATE",
                                             "WOTM_PROMPTS",    "WOTM_MENUCONFIRM", "WOTM_CAMERA",    "WOTM_CAMRECENTER", "WOTM_CLOSECAM",
                                             "WOTM_CAMSENS",    "WOTM_CAMINVERT",   "WOTM_RENDERSCALE", "WOTM_MSAA",      "WOTM_TEXFILTER",
-                                            "WOTM_ANNOUNCER",  "WOTM_SKIPINTRO",   "WOTM_VIBRATION",   "WOTM_INTERP"};
-inline constexpr int kDefault[kKeys] = {720, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 5, 0, 100, 0, 0, 1, 0, 1, 1};
+                                            "WOTM_ANNOUNCER",  "WOTM_SKIPINTRO",   "WOTM_VIBRATION",   "WOTM_INTERP",
+                                            "WOTM_SUPERJUMP",  "WOTM_FASTMONSTERS", "WOTM_TURBO"};
+inline constexpr int kDefault[kKeys] = {720, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 5, 0, 100, 0, 0, 1, 0, 1, 1, 0, 0, 0};
 inline constexpr const char *kPromptNames[] = {"auto", "original", "keyboard", "xbox", "playstation", "nintendo"};
 inline constexpr int kPromptStyles = 6;
 enum PromptStyle { PromptAuto, PromptOriginal, PromptKeyboard, PromptXbox, PromptPs, PromptNintendo };
@@ -72,7 +78,7 @@ inline constexpr const char *kAspectNames[] = {"dynamic", "4:3", "16:9", "16:10"
 inline constexpr float kAspectRatio[] = {0.f, 4.f / 3.f, 16.f / 9.f, 16.f / 10.f, 21.f / 9.f, 32.f / 9.f};
 inline constexpr int kAspects = 6;
 
-inline std::atomic<int> g_val[kKeys] = {720, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 5, 0, 100, 0, 0, 1, 0, 1, 1};
+inline std::atomic<int> g_val[kKeys] = {720, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 5, 0, 100, 0, 0, 1, 0, 1, 1, 0, 0, 0};
 inline std::filesystem::path g_path;   // empty: no file (WOTM_SETTINGS=0 or before load)
 inline std::mutex g_fileMutex;
 inline bool g_pathPending = false;   // load found keys from an older layout: rewrites the file at the end of load
@@ -85,10 +91,16 @@ inline std::atomic<int> g_presentHz{0};
 inline constexpr Key kNetKeys[] = {LockToggle, Camera, CamRecenter, CloseCam, CamSens, CamInvertY};
 inline constexpr int kNetValues[] = {0, 0, 1, 1, 5, 0};
 inline std::atomic<bool> g_netProfile{false};
+// The lobby's modifiers (WOTM_MODIFIERS, wotm::modifiers bits): forced on the three modifier keys in a network match
+inline std::atomic<int> g_netMods{0};
+inline constexpr Key kModKeys[wotm::modifiers::kCount] = {SuperJump, FastMonsters, Turbo};   // bit i = kModKeys[i]
 
 // Network profile value for `k`, or -1 if the option is free
 inline int netValue(Key k)
 {
+    for (int i = 0; i < wotm::modifiers::kCount; ++i)
+        if (kModKeys[i] == k)
+            return (g_netMods.load(std::memory_order_relaxed) >> i) & 1;
     for (size_t i = 0; i < sizeof kNetKeys / sizeof kNetKeys[0]; ++i)
         if (kNetKeys[i] == k)
             return kNetValues[i];
@@ -98,6 +110,26 @@ inline bool forced(Key k) { return g_netProfile.load(std::memory_order_relaxed) 
 
 inline int get(Key k) { return forced(k) ? netValue(k) : g_val[k].load(std::memory_order_relaxed); }
 inline bool on(Key k) { return get(k) != 0; }
+
+// Active modifiers as wotm::modifiers bits (the lobby's in a network match)
+inline int modifiers()
+{
+    int bits = 0;
+    for (int i = 0; i < wotm::modifiers::kCount; ++i)
+        bits |= on(kModKeys[i]) ? 1 << i : 0;
+    return bits;
+}
+
+// WOTM_MODIFIERS=<list> (launcher, lobby): sets the three keys; false (nothing changes) on an unknown name
+inline bool applyModifierList(const char *list)
+{
+    int bits = 0;
+    if (!wotm::modifiers::parse(list ? list : "", bits))
+        return false;
+    for (int i = 0; i < wotm::modifiers::kCount; ++i)
+        g_val[kModKeys[i]].store((bits >> i) & 1);
+    return true;
+}
 
 // Fixed aspect ratio from the Aspect option (0 = dynamic)
 inline float aspectRatio()
@@ -473,8 +505,19 @@ inline void load(const std::filesystem::path &dir)
         fromEnv = applyEnv();
         std::fprintf(stderr, "[settings] %s: %d from file, %d from environment\n", useFile ? g_path.string().c_str() : "file ignored (WOTM_SETTINGS=0)",
                      fromFile, fromEnv);
-        if (const char *net = std::getenv("WOTM_NET"); net && *net)
+        // WOTM_MODIFIERS offline: over the three keys, like any variable; in a network match: forced, the player's own values stay
+        const char *modList = std::getenv("WOTM_MODIFIERS");
+        const char *net = std::getenv("WOTM_NET");
+        const bool netMatch = net && *net;
+        if (modList && !netMatch && !applyModifierList(modList))
+            std::fprintf(stderr, "[settings] WOTM_MODIFIERS=%s: unknown modifier (known: jump, fast, turbo); ignored\n", modList);
+        if (netMatch)
         {
+            // the lobby's list, unset = none (never this PC's own choice: every PC must play the same modifiers)
+            int bits = 0;
+            wotm::modifiers::parse(modList ? modList : "", bits);
+            g_netMods.store(bits);
+            std::fprintf(stderr, "[settings] network match: modifiers \"%s\"\n", wotm::modifiers::format(bits).c_str());
             g_netProfile.store(true);
             std::fprintf(stderr, "[settings] network match: fixed profile (classic camera, the game's lock-on, close camera, no mouse)\n");
         }

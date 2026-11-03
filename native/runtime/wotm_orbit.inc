@@ -85,7 +85,7 @@ namespace
             while (a < -kPi) a += 2.f * kPi;
             return a;
         }
-        float headingTo(float dx, float dy) { return std::atan2(dx, dy); }   // 0 = +Y, positive toward +X
+        float headingTo(float dx, float dy) { return wotm::detmath::atan2f(dx, dy); }   // 0 = +Y, positive toward +X
 
         bool enabled() { return wotm::settings::on(wotm::settings::Camera) && !g_aiVsAi && !g_wotmFreeCam.load(std::memory_order_relaxed); }
 
@@ -527,10 +527,10 @@ namespace
                 std::memcpy(s.lastMon, mt, sizeof mt);
                 if (!locked && wotm::settings::on(wotm::settings::CamRecenter) && s.still > 90 && speed > 0.5f)
                 {
-                    const float align = -(vx * std::sin(s.az) + vy * std::cos(s.az)) / speed;   // 1 = away from the camera (az is the heading from the monster to it)
+                    const float align = -(vx * wotm::detmath::sinf(s.az) + vy * wotm::detmath::cosf(s.az)) / speed;   // 1 = away from the camera (az is the heading from the monster to it)
                     // walking forward (monster heading matching the movement) and sustained: the monster's turn has its own movement
                     // (starting to walk sideways while facing the camera slides ~1 s away from it, at 2.5 per frame)
-                    const float facing = (vx * std::sin(monHeading) + vy * std::cos(monHeading)) / speed;
+                    const float facing = (vx * wotm::detmath::sinf(monHeading) + vy * wotm::detmath::cosf(monHeading)) / speed;
                     s.away = align > 0.5f && facing > 0.7f ? s.away + 1 : 0;
                     if (s.away > 20)
                     {
@@ -557,10 +557,10 @@ namespace
                 // the camera to right above the monster), and with the camera at another angle they turned into jolts
                 const float offY = rdF(rdram, c + kCamOffset + 4), offZ = rdF(rdram, c + kCamOffset + 8);
                 const float back = -offY, len = std::sqrt(back * back + offZ * offZ);
-                const float e0 = std::atan2(offZ, back), e = std::clamp(e0 + s.elev, -0.25f, 1.45f);
-                const float horiz = len * std::cos(e), height = len * std::sin(e);
+                const float e0 = wotm::detmath::atan2f(offZ, back), e = std::clamp(e0 + s.elev, -0.25f, 1.45f);
+                const float horiz = len * wotm::detmath::cosf(e), height = len * wotm::detmath::sinf(e);
 
-                float pos[3] = {s.pivot[0] + std::sin(s.az) * horiz, s.pivot[1] + std::cos(s.az) * horiz, s.pivot[2] + height};
+                float pos[3] = {s.pivot[0] + wotm::detmath::sinf(s.az) * horiz, s.pivot[1] + wotm::detmath::cosf(s.az) * horiz, s.pivot[2] + height};
                 collide(probe, s, v, pos, log && frames % logEvery == 0);
                 if (s.blend > 0.001f)
                 {
@@ -592,7 +592,7 @@ namespace
                                       s.pivot[2] + 120.f + s.lockAim[2] * s.lockW};
                 const float adx = aim[0] - pos[0], ady = aim[1] - pos[1];
                 p.heading = headingTo(adx, ady);
-                p.pitch = std::clamp(std::atan2(aim[2] - pos[2], std::max(std::sqrt(adx * adx + ady * ady), 1.f)), -1.5f, 1.5f);
+                p.pitch = std::clamp(wotm::detmath::atan2f(aim[2] - pos[2], std::max(std::sqrt(adx * adx + ady * ady), 1.f)), -1.5f, 1.5f);
                 float ax[3][3];
                 wotmFreeCamAxes(p, ax[0], ax[1], ax[2]);
                 for (int i = 0; i < 3; ++i)

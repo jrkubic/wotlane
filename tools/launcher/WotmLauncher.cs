@@ -163,6 +163,7 @@ class Launcher : Form
             matchLevel.SelectedIndex = 0;
             for (int i = 0; i < matchAIs.Length; ++i) { matchAIs[i].SelectedIndex = i == 0 ? 1 : 0; matchAISkins[i].SelectedIndex = 0; }
             foreach (CheckBox c in cheatBoxes) c.Checked = false;
+            foreach (CheckBox c in modBoxes) c.Checked = false;
             cheatStamina.SelectedIndex = 0;
             cheatWin.Value = 0;
         };
@@ -204,6 +205,10 @@ class Launcher : Form
     readonly ComboBox[] matchAIs = new ComboBox[MatchMaxAIs];
     readonly ComboBox matchPlayerSkin = SkinBox(120);
     readonly ComboBox[] matchAISkins = new ComboBox[MatchMaxAIs];
+    // gameplay modifiers, in LobbyClient.ModifierNames order
+    readonly CheckBox[] modBoxes = new CheckBox[3];
+
+    string ModsValue() { return LobbyClient.ModifierList(modBoxes[0].Checked, modBoxes[1].Checked, modBoxes[2].Checked); }
 
     // Skin box item: the text and the WOTM_MATCH value ("0".."3", the mod skin id, "random")
     class SkinItem
@@ -366,6 +371,24 @@ class Launcher : Form
             "Metro City with 8 still has ~21 MB to spare.");
         inner.Controls.Add(Row("Stage", matchLevel));
 
+        var modsRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        modsRow.Controls.Add(new Label { Text = "Modifiers:", AutoSize = true, Margin = new Padding(3, 6, 3, 0) });
+        string[] modTips = {
+            "Moon gravity: everyone jumps about twice as high and thrown monsters float.",
+            "Monsters walk, run and dash 1.5x faster; animations and attacks keep their speed.",
+            "The whole game runs at 2x speed (sound stays at normal speed)." };
+        for (int i = 0; i < modBoxes.Length; ++i)
+        {
+            var cb = new DarkCheckBox { Text = LobbyClient.ModifierLabels[i], AutoSize = true };
+            cb.Checked = saved.TryGetValue(":Mod_" + LobbyClient.ModifierNames[i], out v) && v == "1";
+            tips.SetToolTip(cb, modTips[i] + " Offline, or the host's choice for the lobby (sent to the server; joiners play the host's). " +
+                "With all three off, offline uses the in-game panel's MODIFIERS tab.");
+            cb.CheckedChanged += delegate { if (lobbyOwner) NetSend("SET mods=" + ModsValue()); };
+            modBoxes[i] = cb;
+            modsRow.Controls.Add(cb);
+        }
+        inner.Controls.Add(modsRow);
+
         inner.Controls.Add(new Label { Text = "AI opponents (up to 7; none = play solo on the stage):", AutoSize = true, Margin = new Padding(3, 6, 3, 0) });
         var foes = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, MaximumSize = new Size(420, 0), WrapContents = true };
         for (int i = 0; i < MatchMaxAIs; ++i)
@@ -467,7 +490,15 @@ class Launcher : Form
     readonly Button netStart = new Button { Text = "Start match", AutoSize = true, Enabled = false };
     readonly Label netInfo = new Label { AutoSize = true, MaximumSize = new Size(400, 0) };
     readonly TextBox netShare = new TextBox { Width = 390, Height = 92, Multiline = true, ReadOnly = true, Visible = false, ScrollBars = ScrollBars.Vertical };
+    // public server list: a master server (wotm_server --master) lists the servers that announce themselves to it
+    readonly TextBox netMaster = new TextBox { Width = 160 };
+    readonly Button netBrowse = new Button { Text = "Browse public servers", AutoSize = true };
+    readonly ListBox netServers = new ListBox { Width = 390, Height = 64 };
+    readonly List<LobbyClient.ServerInfo> netServerInfos = new List<LobbyClient.ServerInfo>();
+    readonly CheckBox netPublic = new DarkCheckBox { Text = "List publicly as", AutoSize = true };
+    readonly TextBox netPublicName = new TextBox { Width = 120 };
     ServerHost hosted;
+    string hostedPublic = "";   // "<master> <name>" the hosted server announces to, "" when private
     List<string> hostedLines = new List<string>();
     string hostedRouter = "";
     readonly Timer netTimer = new Timer { Interval = 200 };
@@ -489,6 +520,15 @@ class Launcher : Form
         inner.Controls.Add(Row("Server", netServer));
         netName.Text = saved.TryGetValue(":NetName", out v) && v.Length > 0 ? v : LobbyClient.CleanName(Environment.UserName);
         inner.Controls.Add(Row("Your name", netName));
+
+        netMaster.Text = saved.TryGetValue(":NetMaster", out v) ? v : "";
+        tips.SetToolTip(netMaster, "host or host:port of a master server (default port " + LobbyClient.MasterPort + "): the list of public servers.");
+        tips.SetToolTip(netBrowse, "Lists the public servers on the master server, with a ping from this PC. Pick one to use it as Server.");
+        tips.SetToolTip(netServers, "Pick a server: it becomes the Server above and its lobbies show in the list below.");
+        var masterRow = Row("Master server", netMaster);
+        masterRow.Controls.Add(netBrowse);
+        inner.Controls.Add(masterRow);
+        inner.Controls.Add(netServers);
 
         netLobbyName.Text = saved.TryGetValue(":NetLobbyName", out v) && v.Length > 0 ? v : "Friends";
         var hostLobby = new Button { Text = "Host lobby", AutoSize = true };
@@ -527,6 +567,14 @@ class Launcher : Form
         row.Controls.Add(leave);
         row.Controls.Add(host);
         inner.Controls.Add(row);
+        netPublic.Checked = saved.TryGetValue(":NetPublic", out v) && v == "1";
+        netPublicName.Text = saved.TryGetValue(":NetPublicName", out v) && v.Length > 0 ? v : netName.Text;
+        tips.SetToolTip(netPublic, "With 'Host on this PC': your server shows up in the public list of the Master server, under this name. " +
+            "Players still need your port forwarded (or UPnP) to reach it.");
+        var publicRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        publicRow.Controls.Add(netPublic);
+        publicRow.Controls.Add(netPublicName);
+        inner.Controls.Add(publicRow);
 
         hostLobby.Click += delegate { NetCreate(); };
         joinCode.Click += delegate { NetJoin(netCode.Text.Trim()); };
@@ -543,6 +591,8 @@ class Launcher : Form
         matchLevel.SelectedIndexChanged += delegate { if (lobbyOwner) NetSend("SET stage=" + LevelIds[matchLevel.SelectedIndex]); };
         leave.Click += delegate { NetSend("LEAVE"); };
         host.Click += delegate { NetHost(); };
+        netBrowse.Click += delegate { NetBrowse(); };
+        netServers.SelectedIndexChanged += delegate { NetPickServer(); };
         netInfo.ForeColor = DimColor;
         netInfo.Text = "Pick your monster and stage in Match, then host a lobby or join one. Online play uses the build in this folder.";
         inner.Controls.Add(netInfo);
@@ -642,11 +692,17 @@ class Launcher : Form
         NetSend("JOIN " + code + " " + name + " " + monster + NetPassword());
     }
 
-    // the owner sends the current stage and wins, then starts
+    // the owner's stage, wins and modifiers for the lobby
+    string NetSetLine()
+    {
+        return "SET stage=" + LevelIds[matchLevel.SelectedIndex] + " wins=" + (int)netWins.Value + " mods=" + ModsValue();
+    }
+
+    // the owner sends the current settings, then starts
     void NetStart()
     {
         if (!lobbyOwner) { netInfo.Text = "Only the lobby host starts the match."; return; }
-        NetSend("SET stage=" + LevelIds[matchLevel.SelectedIndex] + " wins=" + (int)netWins.Value);
+        NetSend(NetSetLine());
         NetSend("START");
     }
 
@@ -660,12 +716,22 @@ class Launcher : Form
         int colon = s.LastIndexOf(':');
         int port = colon > 0 ? ParseInt(s.Substring(colon + 1)) : 7777;
         if (port <= 0 || port > 65535) port = 7777;
-        if (hosted == null || !hosted.Running || hosted.Port != port)
+        string master = netMaster.Text.Trim(), publicName = LobbyClient.CleanName(netPublicName.Text);
+        if (netPublic.Checked && master.Length == 0) { netInfo.Text = "Type the Master server's address to list your server publicly."; return; }
+        if (netPublic.Checked && publicName.Length == 0) publicName = LobbyClient.CleanName(netName.Text);
+        netPublicName.Text = publicName;
+        string wantPublic = netPublic.Checked ? master + " " + publicName : "";
+        if (hosted == null || !hosted.Running || hosted.Port != port || (hosted.Owned && hostedPublic != wantPublic))
         {
             if (hosted != null) hosted.Dispose();
-            try { hosted = ServerHost.Start(exe, port, Path.Combine(exeDir, "wotm_server.log"), 3000); }
+            try
+            {
+                hosted = ServerHost.Start(exe, port, Path.Combine(exeDir, "wotm_server.log"), 3000, netPublic.Checked ? master : null, publicName);
+            }
             catch (LobbyError e) { hosted = null; netInfo.Text = "Failed to start the server: " + e.Message; return; }
-            hostedRouter = hosted.Owned ? "Router: trying to open port " + port + " (UPnP)..." : "A server was already running on port " + port + ": using it.";
+            hostedPublic = hosted.Owned ? wantPublic : "";
+            hostedRouter = hosted.Owned ? "Router: trying to open port " + port + " (UPnP)..." : "A server was already running on port " + port + ": using it" +
+                (netPublic.Checked ? " (it isn't listed publicly by this launcher)." : ".");
             if (hosted.Owned) MapRouterPort(hosted);
         }
         if (lobby != null && lobby.Host != "127.0.0.1") { lobby.Dispose(); lobby = null; }
@@ -705,6 +771,54 @@ class Launcher : Form
         }) { IsBackground = true }.Start();
     }
 
+    // public servers from the master server; the pings take up to a second or two, so the list is fetched on a thread
+    void NetBrowse()
+    {
+        string master = netMaster.Text.Trim();
+        if (master.Length == 0) { netInfo.Text = "Type the Master server's address (host or host:" + LobbyClient.MasterPort + ")."; return; }
+        netBrowse.Enabled = false;
+        netInfo.Text = "Asking the master server " + master + "...";
+        new System.Threading.Thread(delegate()
+        {
+            List<LobbyClient.ServerInfo> list = null;
+            string error = null;
+            try { list = LobbyClient.Browse(master, 3000); }
+            catch (LobbyError e) { error = e.Message; }
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    netBrowse.Enabled = true;
+                    netServerInfos.Clear();
+                    netServers.Items.Clear();
+                    if (error != null) { netInfo.Text = "Master server: " + error; return; }
+                    foreach (LobbyClient.ServerInfo si in list)
+                    {
+                        netServerInfos.Add(si);
+                        netServers.Items.Add(si.Name + "   " + si.Ip + ":" + si.Port + "   " + si.Open + (si.Open == 1 ? " lobby" : " lobbies") +
+                            " (" + si.Waiting + " waiting)   " + si.Players + (si.Players == 1 ? " player" : " players") + "   " +
+                            LobbyClient.ServerStatus(si));
+                    }
+                    netInfo.Text = list.Count == 0 ? "No public servers right now." : "Pick a server to see its lobbies.";
+                });
+            }
+            catch (InvalidOperationException) { }   // launcher already closed
+        }) { IsBackground = true }.Start();
+    }
+
+    // a server picked in the public list becomes the Server, and its lobbies are listed
+    void NetPickServer()
+    {
+        int i = netServers.SelectedIndex;
+        if (i < 0 || i >= netServerInfos.Count) return;
+        LobbyClient.ServerInfo si = netServerInfos[i];
+        if (lobbyCode.Length > 0) { netInfo.Text = "Leave your lobby first to switch servers."; return; }
+        netServer.Text = si.Ip + ":" + si.Port;
+        if (lobby != null) { lobby.Dispose(); lobby = null; }
+        if (si.Protocol != LobbyClient.Protocol) { netInfo.Text = si.Name + " " + LobbyClient.ServerStatus(si) + "."; return; }
+        NetRefresh();
+    }
+
     // the box the host copies to friends: addresses, lobby code, router status
     void ShowShare()
     {
@@ -715,6 +829,11 @@ class Launcher : Form
         foreach (string a in hostedLines) l.Add("  " + a);
         if (hostedLines.Count == 0) l.Add("  (no network address found)");
         l.Add(hostedRouter);
+        if (hostedPublic.Length > 0)
+        {
+            int sp = hostedPublic.LastIndexOf(' ');
+            l.Add("Listed publicly as " + hostedPublic.Substring(sp + 1) + " on the master server " + hostedPublic.Substring(0, sp) + ".");
+        }
         if (hosted.Owned) l.Add("If Windows asks whether wotm_server may use the network, allow it.");
         netShare.Text = string.Join(Environment.NewLine, l.ToArray());
         netShare.Visible = true;
@@ -739,23 +858,27 @@ class Launcher : Form
             else if (l == "END" && netLobbies.Count == 0) netInfo.Text = "No open lobbies on this server: host one.";
             else if (l.StartsWith("CREATED ")) { netCode.Text = l.Substring(8).Trim(); ShowShare(); }
             else if (l.StartsWith("JOINED ")) { lobbyCode = l.Substring(7).Trim(); netCode.Text = lobbyCode; ShowShare(); }
-            else if (l.StartsWith("LEFT ")) { lobbyCode = ""; lobbyOwner = false; netStart.Enabled = false; netInfo.Text = "Left the lobby."; }
+            else if (l.StartsWith("LEFT ")) { lobbyCode = ""; NetNotInLobby(); netInfo.Text = "Left the lobby."; }
             else if (l.StartsWith("SETTINGS "))
             {
                 Dictionary<string, string> kv = LobbyClient.KeyValues(l);
                 int wins = kv.ContainsKey("wins") ? ParseInt(kv["wins"]) : 0;
-                netSettings = "stage " + (kv.ContainsKey("stage") ? kv["stage"] : "?") + ", " + (wins > 0 ? wins + " wins to end" : "endless");
+                netSettings = "stage " + (kv.ContainsKey("stage") ? kv["stage"] : "?") + ", " + (wins > 0 ? wins + " wins to end" : "endless") +
+                    ", " + LobbyClient.ModifierLabel(kv.ContainsKey("mods") ? kv["mods"] : "");
+                ShowLobby();
             }
             else if (l.StartsWith("MEMBERS "))
             {
                 LobbyClient.MemberInfo m = LobbyClient.ParseMembers(l);
                 if (m == null) continue;
+                bool wasOwner = lobbyOwner;
+                lobbyMembers = m;
                 lobbyOwner = m.Host == LobbyClient.CleanName(netName.Text);
                 netStart.Enabled = lobbyOwner;
-                var names = new List<string>();
-                foreach (string n in m.Names) names.Add(n.Split(':')[0]);
-                netInfo.Text = "Lobby " + m.Code + " (code for friends): " + string.Join(", ", names.ToArray()) + ". Host: " + m.Host +
-                    (netSettings.Length > 0 ? " (" + netSettings + ")" : "") + "." + (lobbyOwner ? " Press Start match when everyone is in." : " Waiting for the host to start.");
+                // a joiner plays the host's modifiers (shown in the lobby line), so its own boxes do not apply in the lobby
+                foreach (CheckBox c in modBoxes) c.Enabled = lobbyOwner;
+                if (lobbyOwner && !wasOwner) NetSend(NetSetLine());   // the lobby shows the new host's settings before Start match
+                ShowLobby();
             }
             else if (l.StartsWith("ERROR ")) netInfo.Text = "Server: " + l.Substring(6);
             else if (l.StartsWith("MATCH ")) PlayOnline(LobbyClient.MatchEnv(LobbyClient.KeyValues(l), lobbyHost));
@@ -765,9 +888,30 @@ class Launcher : Form
             netInfo.Text = "Connection to the server closed.";
             netTimer.Stop();
             lobby = null;
-            lobbyOwner = false;
-            netStart.Enabled = false;
+            NetNotInLobby();
         }
+    }
+
+    LobbyClient.MemberInfo lobbyMembers;
+
+    // the lobby line: code, members, host and the lobby's settings
+    void ShowLobby()
+    {
+        LobbyClient.MemberInfo m = lobbyMembers;
+        if (m == null) return;
+        var names = new List<string>();
+        foreach (string n in m.Names) names.Add(n.Split(':')[0]);
+        netInfo.Text = "Lobby " + m.Code + " (code for friends): " + string.Join(", ", names.ToArray()) + ". Host: " + m.Host +
+            (netSettings.Length > 0 ? " (" + netSettings + ")" : "") + "." + (lobbyOwner ? " Press Start match when everyone is in." : " Waiting for the host to start.");
+    }
+
+    void NetNotInLobby()
+    {
+        lobbyOwner = false;
+        lobbyMembers = null;
+        netSettings = "";
+        netStart.Enabled = false;
+        foreach (CheckBox c in modBoxes) c.Enabled = true;
     }
     static int MonsterId(int k) { return k >= MonsterIds.Length ? RandomId : MonsterIds[k]; }
 
@@ -870,13 +1014,18 @@ class Launcher : Form
         lines.Add(":NetName|" + netName.Text.Trim());
         lines.Add(":NetLobbyName|" + netLobbyName.Text.Trim());
         lines.Add(":NetWins|" + (int)netWins.Value);
+        for (int i = 0; i < modBoxes.Length; ++i) lines.Add(":Mod_" + LobbyClient.ModifierNames[i] + "|" + (modBoxes[i].Checked ? "1" : "0"));
+        lines.Add(":NetMaster|" + netMaster.Text.Trim());
+        lines.Add(":NetPublic|" + (netPublic.Checked ? "1" : "0"));
+        lines.Add(":NetPublicName|" + netPublicName.Text.Trim());
         try { File.WriteAllLines(IniPath, lines.ToArray()); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     // Video, QoL and separate keyboard live in the main menu's "Recompiled options" panel (native/wotm_settings.hpp, settings.ini
     // next to save.json). The launcher does not pass them; an inherited variable would override the file, so it is removed.
     static readonly string[] SettingsKeys = { "WOTM_RES", "WOTM_ASPECT", "WOTM_FULLSCREEN", "WOTM_HZ", "WOTM_VSYNC",
-        "WOTM_LOCKTOGGLE", "WOTM_ENEMYBARS", "WOTM_DAMAGEPOP", "WOTM_KBSEPARATE", "WOTM_SKIPINTRO", "WOTM_VIBRATION", "WOTM_INTERP" };
+        "WOTM_LOCKTOGGLE", "WOTM_ENEMYBARS", "WOTM_DAMAGEPOP", "WOTM_KBSEPARATE", "WOTM_SKIPINTRO", "WOTM_VIBRATION", "WOTM_INTERP",
+        "WOTM_SUPERJUMP", "WOTM_FASTMONSTERS", "WOTM_TURBO" };
 
     // The runtime folder (the one with run_live.ps1): WOTM_RECOMP_DIR, then the .wotm_recomp_dir that run_live.bat saves in the repo root.
     string KnownRuntimeDir()
@@ -1008,6 +1157,10 @@ class Launcher : Form
         string cheats = CheatsValue();
         if (cheats.Length > 0) psi.EnvironmentVariables["WOTM_CHEATS"] = cheats;
         else psi.EnvironmentVariables.Remove("WOTM_CHEATS");
+        // all off: the panel's MODIFIERS tab (settings.ini) decides; a network match replaces this with the lobby's list
+        string mods = ModsValue();
+        if (mods.Length > 0) psi.EnvironmentVariables["WOTM_MODIFIERS"] = mods;
+        else psi.EnvironmentVariables.Remove("WOTM_MODIFIERS");
         return psi;
     }
 

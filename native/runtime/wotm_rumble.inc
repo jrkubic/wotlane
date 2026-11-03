@@ -95,6 +95,7 @@ static void send(int x, uint16_t left, uint16_t right)
 // Sends each pad the request of the player it feeds (the strongest, if the pad feeds more than one)
 static void apply()
 {
+    if (!g_set) return;   // no XInput (Mac, Linux, Windows without the DLL): the game still sees the same pads, nothing rumbles
     const bool on = wotm::settings::on(wotm::settings::Vibration);
     uint16_t left[4] = {}, right[4] = {};
     if (on)
@@ -196,16 +197,18 @@ static void stopAll()
 
 static void install(PS2Runtime &runtime)
 {
-    if (!loadXInput())
-    {
+    // The hooks go in on every machine, with or without XInput: useHook changes what the game stores for each pad (its rumble
+    // switch at 0x77A0C0), and that state must be the same on every PC of a network match. Only the motors need XInput.
+    const bool xinput = loadXInput();
+    if (!xinput)
         std::fprintf(stderr, "[rumble] XInput unavailable: no rumble\n");
-        return;
-    }
     g_wasOn = wotm::settings::on(wotm::settings::Vibration);
     if ((g_origAct = runtime.lookupFunction(wotm::fn::scePadSetActDirect)))
         runtime.registerFunction(wotm::fn::scePadSetActDirect, &actHook);
     if ((g_origUse = runtime.lookupFunction(wotm::fn::inputUseActuator__Fib)))
         runtime.registerFunction(wotm::fn::inputUseActuator__Fib, &useHook);
+    if (!xinput)
+        return;
     std::atexit(stopAll);   // so no pad keeps rumbling after the game closes
     std::fprintf(stderr, "[rumble] rumble over XInput (%s; VIBRATION on the CONTROLS tab, WOTM_VIBRATION)\n", g_wasOn ? "on" : "off");
 }

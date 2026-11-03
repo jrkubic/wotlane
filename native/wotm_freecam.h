@@ -9,6 +9,8 @@
 #include <cmath>
 #include <mutex>
 
+#include "wotm_detmath.hpp"   // the axes go into the game camera (orbit, F5): same bits on every machine
+
 struct WotmFreeCamPose {
     float pos[3] = {0, 0, 0};
     float heading = 0.f;   // _cs rot.z
@@ -17,7 +19,8 @@ struct WotmFreeCamPose {
 
 // Pose axes (rows of the _cs matrix, as mathfRotMatrixRPH with roll 0)
 inline void wotmFreeCamAxes(const WotmFreeCamPose &p, float right[3], float fwd[3], float up[3]) {
-    const float sh = std::sin(p.heading), ch = std::cos(p.heading), sp = std::sin(p.pitch), cp = std::cos(p.pitch);
+    const float sh = wotm::detmath::sinf(p.heading), ch = wotm::detmath::cosf(p.heading), sp = wotm::detmath::sinf(p.pitch),
+                cp = wotm::detmath::cosf(p.pitch);
     right[0] = ch; right[1] = -sh; right[2] = 0.f;
     fwd[0] = cp * sh; fwd[1] = cp * ch; fwd[2] = sp;
     up[0] = -sp * sh; up[1] = -sp * ch; up[2] = cp;

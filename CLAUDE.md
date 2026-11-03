@@ -16,6 +16,7 @@ When translating:
 - Translating code under `src/`, `include/` or `asm/` still goes through `gate.sh` (rule 2): comment-only changes can't move the ROM, but check anyway.
 - Never translate game data, file-format magic strings or text the retail game itself reads or matches against.
 - Expect merge conflicts when pulling from upstream into translated files. Resolve them by keeping upstream's logic and our English.
+- Every merge or cherry-pick from upstream is followed by translating whatever Portuguese it brought in (new files, comments, log/UI strings, docs, commit-message text you carry over), in a separate translation commit right after the merge. Same rules as above: meaning only, and every string that code or scripts match changes together with its matches.
 
 **Direction: port first.** The base is the game recompiled with PS2Recomp (kept outside the repo, because the generated C++ is game code) plus this repo's native layer
 (`native/`: GPU drawing, sound, movies, keyboard), which already runs fights at 60 fps. The decompilation (`src/`) is the readable layer that replaces, through hooks, only what matters for modding (`Shell::Load*`, `MonsterParse`,

@@ -9,13 +9,13 @@ and can be shared freely.
 
 1. Install what `tools\setup_runtime.ps1` needs: git, Python 3, CMake 3.24+, and Visual Studio 2022 Build Tools with the C++ workload
    **plus the component "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44-17.14)"** (Visual Studio Installer, Modify, Individual
-   components). Online play requires everyone to compile with the same compiler version, so the setup insists on 14.44.
+   components). Online play is tested with 14.44, so the setup insists on it.
 2. Clone the fork on the same commit as your friends:
    `git clone -b wotlane/4p https://github.com/sightama/wotlane.git` (agree on the commit: `git log -1 --format=%h`).
 3. Put your own ISO in `ISO\` and run `powershell -ExecutionPolicy Bypass -File tools\setup_runtime.ps1` (about 10 minutes the first
    time). Later updates: `git pull`, then `build_runtime.bat`.
 4. Compare build ids in your chat: `python tools\build_id.py`. Everyone must print the same `wl-...` id. The server refuses players with
-   a different build (different commit, compiler or flags), because the simulation would drift apart.
+   a different build (different commit or runtime patch), because the simulation would drift apart.
 
 ## 2. The host: run the server
 
@@ -25,7 +25,8 @@ and can be shared freely.
      writes `wotm_server.log` next to the launcher and stops when you close the launcher, so keep the launcher open while you play),
      hosts a lobby on it and shows a box to copy to your friends: the addresses they can type as Server and the lobby code. It also
      asks your router to open the port (UPnP, TCP and UDP; closed again when the launcher closes). If the router refuses, the box says
-     so and which local address to forward the port to.
+     so and which local address to forward the port to. To list it publicly, type the **Master server** address and tick **List
+     publicly as** (with a name) before pressing **Host on this PC** (see "Public server list" below).
    - **Standalone:** run `native\net\build\wotm_server.exe --port 7777` and leave its window open while you play; close it to stop.
    Players create the lobbies themselves from the launcher (up to 16 at a time, `--lobbies N` to change; `--players 2..8` per lobby, 8 by default).
 3. The first time, Windows Firewall asks about `wotm_server.exe`: allow it on private networks (and public if your network is marked
@@ -41,18 +42,40 @@ and can be shared freely.
    - **Dedicated server:** any always-on PC can run `wotm_server` the same way (the source builds with CMake on Linux too). Friends use
      that machine's address.
 
+### Public server list (master server)
+
+A master server keeps the list of public servers, so players can find them without being told an address.
+
+- **Run the master** (one always-on machine): `wotm_server --master` listens on TCP port **7778** (`--port N` to change). Forward
+  that port (TCP only) the same way as above. It needs no game files.
+- **List a server publicly:** start it with `--announce <master address>[:7778] --name <name>` (the name: letters, digits, `-` and
+  `_`, up to 16). Every 10 s it sends the master its port and its counts (open lobbies, how many wait for players, players); the
+  master lists it under the address the announce came from (behind a router, the public one) and drops it 30 s after the last
+  announce. An unreachable master never holds up the server's matches.
+- **See the list:** `python tools/net_lobby.py --browse <master address>` prints one row per server: name, address, lobbies (and how
+  many are waiting), players and ping. `unreachable` means the server announced but nothing answers on its port from here (often a
+  router that doesn't forward it); `needs another version` means it speaks another protocol. Join one with
+  `--server <address> --list`, then `--code`. In the launcher: section 3.
+- **From the launcher:** **List publicly as** (with a name) next to **Host on this PC** starts the hosted server with `--announce`
+  to the **Master server** field.
+
 ## 3. Everyone: join and play
 
 1. Open the launcher (`tools\launcher\build.bat` builds `WotM_Launcher.exe` in the repo root).
 2. In **Match**, pick **Your monster**. The host also picks the **Stage**.
-3. In **Online**, set Server = `<server address>:7777` and type your name. Then:
+3. In **Online**, set Server = `<server address>:7777` and type your name. To find a public server instead, type the **Master
+   server** address and press **Browse public servers**: one row per server with its name, address, lobbies (waiting), players and
+   ping from your PC (`unreachable`: its port doesn't answer from here; `needs another version`: another protocol). Picking a row
+   sets Server to it and lists its lobbies. Then:
    - **To host a lobby:** type a **Lobby name** (and a **Password** if you want only friends to get in) and press **Host lobby**.
      The server gives the lobby a 4-letter **code** (it appears in the Code box and under the buttons): tell it to your friends.
-     You are the lobby's host: you pick the stage (Match group) and the **Wins to end** (0 = endless) and press **Start match**.
+     You are the lobby's host: you pick the stage and the **Modifiers** (Super Jump, Fast Monsters, Turbo; Match group) and the
+     **Wins to end** (0 = endless) and press **Start match**. Joiners' Modifiers boxes are greyed out in a lobby: everyone plays the
+     host's.
    - **To join:** type the code and press **Join by code**, or press **Refresh list**, pick a lobby and press **Join selected**
      (double-click works too). Lobbies marked `[password]` need the host's password in the Password box.
-   The line under the buttons lists who is in the lobby, the host, the stage and the wins. If the host leaves, the next player becomes
-   the host. An empty lobby closes.
+   The line under the buttons lists who is in the lobby, the host, the stage, the wins and the modifiers. If the host leaves, the next
+   player becomes the host (and the lobby takes the new host's settings). An empty lobby closes.
 4. When everyone is in, the host presses **Start match**. The game opens on every PC, loads the stage and waits until everyone has
    arrived; the server measures the ping and picks the input delay. The launcher minimizes and stays in the lobby.
 5. In the game: your controller (or keyboard) drives your monster; the screen shows only your view. Top right: ping and input delay in
@@ -62,11 +85,15 @@ and can be shared freely.
    host can change the stage or wins and start again. QUIT from the pause menu does the same.
 
 Command line alternative to the launcher (`tools\net_lobby.py`, prints the environment for `wotm.exe` when the match starts):
-`--create <lobby> --name Ana --monster 3 [--password <pw>] [--stage N] [--wins N] --start-with <players>` hosts a lobby (the code goes
+`--create <lobby> --name Ana --monster 3 [--password <pw>] [--stage N] [--wins N] [--mods jump,fast,turbo] --start-with <players>` hosts a lobby (the code goes
 to the console) and starts once that many players are in; `--code <code> --name Bia --monster 1 [--password <pw>]` joins one;
 `--list` shows the open lobbies.
 
 ## What is different online
+
+- Gameplay modifiers (Super Jump, Fast Monsters, Turbo) are the lobby's: the host sets them (`SET mods=<list>` in the lobby
+  protocol, the **Modifiers** boxes in the launcher, `--mods` in `net_lobby.py`), every PC gets them in `MATCH` (`WOTM_MODIFIERS`), and the MODIFIERS tab shows them locked. A PC
+  with a different list is refused at join. Turbo doubles the fields per frame during the fight only: menus keep their speed.
 
 - Endless free-for-all with Wins to end 0: knocked-out monsters get back up, no end-of-match screen; QUIT from the pause menu (or closing the window) leaves. With a wins
   target (the host's **Wins to end**) the first to reach it ends the match with the game's PLAY AGAIN / REBUILD LEVEL /
@@ -97,7 +124,7 @@ to the console) and starts once that many players are in; `--code <code> --name 
 
 ## Troubleshooting
 
-- "build diferente": someone is on another commit or compiler. Compare `python tools\build_id.py`; `git pull` and rebuild.
+- "different build": someone is on another commit. Compare `python tools\build_id.py`; `git pull` and rebuild.
 - "configuracao do jogo diferente": someone launched with different game options (enemy bars, cheats, `WOTM_RATEMIN`, wins target)
   or a different set of mods in `mods\`. Use the same launcher checkboxes in the Mods group and copy the same mod folders (folders whose
   name starts with `_` are off and do not count).

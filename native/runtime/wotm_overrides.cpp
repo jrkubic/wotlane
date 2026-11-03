@@ -106,6 +106,7 @@ std::atomic<bool> g_wotmCheatWin{false};
 // Debug free camera (F5): the window (wotm_freecam.inc) moves the pose, the EE thread puts it into view 0's _cs (freeCamWrite).
 #include "wotm_freecam.h"
 #include "wotm_mouse.hpp"   // mouse for the modern camera (wotm_orbit.inc consumes it, the window accumulates it)
+#include "wotm_detmath.hpp"   // trig with the same bits on every machine, for results that reach guest RAM (wotm_orbit.inc, lock-on)
 std::atomic<bool> g_wotmFreeCam{false};
 std::atomic<bool> g_wotmFreeCamPad{false};
 std::mutex g_wotmFreeCamM;
@@ -191,14 +192,30 @@ namespace
         return static_cast<uint32_t>(static_cast<uint64_t>(us) * 576u / 1000u);   // wraps around in ~2 h, like the game's counter
     }
 
+    // Offline turbo (wotm_modifiers.inc): during the fight the host clock the game sees runs 2x, continuous across each switch
+    uint32_t g_clockHost0 = 0, g_clockGame0 = 0, g_clockScale = 1;
+    uint32_t gameHostTics() { return wotm::modifiers::scaledClock(hostTics(), g_clockHost0, g_clockGame0, g_clockScale); }
+    void setGameClockScale(uint32_t scale)
+    {
+        const uint32_t host = hostTics();
+        g_clockGame0 = wotm::modifiers::scaledClock(host, g_clockHost0, g_clockGame0, g_clockScale);
+        g_clockHost0 = host;
+        g_clockScale = scale;
+    }
+
 #include "wotm_sync.inc"
+    namespace wotm_modifiers   // wotm_modifiers.inc (below, after the RAM helpers it uses)
+    {
+        void fightStart();
+        void statsFrame(uint8_t *rdram);
+    }
 
     // The clock the game sees: the host's, or the fixed-step virtual one (WOTM_FIXEDSTEP; wotm_sync::callTics on each query from the game)
-    uint32_t gameTics() { return wotm_sync::g_fixedStep ? wotm_sync::g_virtualTics : hostTics(); }
+    uint32_t gameTics() { return wotm_sync::g_fixedStep ? wotm_sync::g_virtualTics : gameHostTics(); }
 
     void getCurTicsNative(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        const uint32_t ra = GPR_U32(ctx, 31), now = wotm_sync::g_fixedStep ? wotm_sync::callTics() : hostTics();
+        const uint32_t ra = GPR_U32(ctx, 31), now = wotm_sync::g_fixedStep ? wotm_sync::callTics() : gameHostTics();
         SET_GPR_U32(ctx, 2, now);
         ctx->pc = ra;
         if (ra == kFrameStartRa[0] || ra == kFrameStartRa[1])   // the game resets T1 there: start of the frame
@@ -975,6 +992,7 @@ namespace
             // there are frames with no call, and the line added up two frames)
             if (g_fieldLog)
                 fieldLogFrame(rdram, ctx, runtime);
+            wotm_modifiers::statsFrame(rdram);
             // frame ready (update, hier, particleDraw) and the next one hasn't started: native drawing copies the scene here
             emitChaseHud(rdram);
             wotm_split4::trainingHudLate(rdram, ctx, runtime);   // training mode: the dummy's HUD if HUD 0's update was paused
@@ -986,12 +1004,26 @@ namespace
                 WRITE32(kFieldCounter, READ32(kFieldCounterAtStart) + 1u);
             else if ((g_nativeTimer || g_wotmFreeSpinPc != 0u) && g_frameStartValid)
             {
-                const uint64_t vblanks = runtime->eeScheduler().currentVSyncTick() - g_frameStartVsync;
+                const uint64_t vblanks = (runtime->eeScheduler().currentVSyncTick() - g_frameStartVsync) * g_clockScale;   // turbo: 2 fields per vsync
                 const int32_t start = static_cast<int32_t>(READ32(kFieldCounterAtStart));
                 const int32_t measured = static_cast<int32_t>(READ32(kFieldCounter)) - start;
                 if (vblanks > 0u && vblanks < 16u && static_cast<int32_t>(vblanks) > measured)
                     WRITE32(kFieldCounter, static_cast<uint32_t>(start + static_cast<int32_t>(vblanks)));
             }
+#if !PS2X_HW_EMU
+            // Fixed step n > 1 (the 30 Hz mode of 3+ player network matches): frame() makes the frame exactly n fields long, which also
+            // satisfies the game's own wait below, so without this a fast PC ran each 2-field frame in one vsync, at up to twice the
+            // speed. The wait is in place on the vblank clock, not through the game's sceGsSyncV, whose fixed-step parity counts calls
+            // and must be the same on every PC. A turbo fight is 1 vsync per 2-field frame on purpose (wotm::modifiers::vsyncsPerFrame).
+            const int frameVsyncs = wotm::modifiers::vsyncsPerFrame(wotm_sync::g_fixedStep, wotm_sync::g_mods);
+            if (frameVsyncs > 1 && g_frameStartValid)
+            {
+                EeScheduler &ee = runtime->eeScheduler();
+                const uint64_t until = g_frameStartVsync + static_cast<uint64_t>(frameVsyncs);
+                while (ee.currentVSyncTick() < until && !runtime->isStopRequested())
+                    ee.waitVSyncHere(ee.currentVSyncTick(), 0);
+            }
+#endif
             wotm_sync::frame(rdram, kFieldCounter, kFieldCounterAtStart, kFieldsForAverage);   // fixed step and state hash (WOTM_FIXEDSTEP, WOTM_STATEHASH)
         }
         g_origWaitMinRate(rdram, ctx, runtime);
@@ -1139,6 +1171,7 @@ namespace
             wotmLoadFreeze(true);
             ++g_loadGen;
             wotm_sync::levelLoad();
+            wotm_modifiers::fightStart();
         }
         g_origLoadLevelFiles(rdram, ctx, runtime);
     }
@@ -1717,7 +1750,7 @@ namespace
             return;
         auto screenAngle = [&](const float p[3]) {
             const float dx = p[0] - me[0], dy = p[1] - me[1];
-            return std::atan2(dx * right[0] + dy * right[1], dx * fwd[0] + dy * fwd[1]);
+            return wotm::detmath::atan2f(dx * right[0] + dy * right[1], dx * fwd[0] + dy * fwd[1]);   // picks game state: same bits everywhere
         };
         const float curA = targetPos(rdram, cur, tp) ? screenAngle(tp) : 0.f;
         uint32_t best = 0, wrap = 0;
@@ -1946,6 +1979,8 @@ namespace
             }
         }
     }
+
+#include "wotm_modifiers.inc"   // gameplay modifiers: Super Jump, Fast Monsters, Turbo
 }
 
 namespace
@@ -2653,6 +2688,7 @@ void wotmInstallOverrides(PS2Runtime &runtime, const std::string &elfPath)
     }
     wotm_multi::install(runtime);   // after the LoadLevelFiles hook (stage load), which it wraps
     wotm_sync::init(runtime);
+    wotm_modifiers::install(runtime);   // after the direct match's userintMain, which it chains
     if ((g_origFfaOptions1P = runtime.lookupFunction(kFfaOptions1P)))
         runtime.registerFunction(kFfaOptions1P, &ffaOptions1PWithZero);
     if ((g_origFfaOptions2P = runtime.lookupFunction(kFfaOptions2P)))

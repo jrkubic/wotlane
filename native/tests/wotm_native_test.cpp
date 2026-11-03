@@ -3,8 +3,14 @@
 #include "wotm_interp.hpp"
 #include "wotm_settings.hpp"
 #include "wotm_mods.hpp"
+#include "wotm_detmath.hpp"
+#include "wotm_freecam.h"
+#include "wotm_trig_goldens.hpp"
+#include "net/wotm_modifiers.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -201,6 +207,55 @@ namespace
         CHECK(ip::focusOf(M, g) && near(g.fh, 384.f, 1e-3f) && near(g.fv, 180.48f, 1e-3f));
     }
 
+    // Gameplay modifiers (net/wotm_modifiers.hpp): the name list the lobby, the launcher and WOTM_MODIFIERS use, in canonical order;
+    // turbo's frame shape (2 fields per frame, paced at 1 vsync) and the offline turbo clock
+    TEST(modifier_list_parse_and_format)
+    {
+        namespace md = wotm::modifiers;
+        int bits = -1;
+        CHECK(md::parse("turbo,jump", bits) && bits == (md::Jump | md::Turbo));
+        CHECK(md::format(bits) == "jump,turbo");
+        CHECK(md::parse("", bits) && bits == 0 && md::format(0).empty());
+        CHECK(md::parse("fast, fast", bits) && bits == md::Fast);
+        CHECK(md::parse("jump,fast,turbo", bits) && md::format(bits) == "jump,fast,turbo");
+        bits = 7;
+        CHECK(!md::parse("moon", bits) && bits == 7);
+        CHECK(!md::parse("jump,", bits));
+        CHECK(md::fieldsPerFrame(1, md::Turbo) == 2 && md::fieldsPerFrame(2, 0) == 2 && md::fieldsPerFrame(1, md::Jump) == 1);
+        CHECK(md::vsyncsPerFrame(2, md::Turbo) == 1 && md::vsyncsPerFrame(2, 0) == 2 && md::vsyncsPerFrame(1, md::Turbo) == 1);
+        CHECK(md::scaledClock(110u, 100u, 500u, 2u) == 520u);
+        CHECK(md::scaledClock(5u, 0xFFFFFFF0u, 0u, 2u) == 42u);   // the host clock wrapped around
+    }
+
+    // Modifier options (wotm_settings.hpp): three on/off keys offline; WOTM_MODIFIERS sets all three; in a network match the lobby's
+    // list (g_netMods) is forced and the player's own values stay stored
+    TEST(modifier_settings_and_net_lock)
+    {
+        namespace st = wotm::settings;
+        namespace md = wotm::modifiers;
+        st::g_netProfile.store(false);
+        st::g_val[st::SuperJump].store(1);
+        st::g_val[st::FastMonsters].store(0);
+        st::g_val[st::Turbo].store(0);
+        CHECK(st::modifiers() == md::Jump && !st::forced(st::SuperJump));
+        CHECK(st::applyModifierList("fast,turbo"));
+        CHECK(st::modifiers() == (md::Fast | md::Turbo));
+        CHECK(!st::applyModifierList("moon") && st::modifiers() == (md::Fast | md::Turbo));
+        st::g_val[st::SuperJump].store(1);
+        st::g_netProfile.store(true);
+        st::g_netMods.store(md::Turbo);
+        CHECK(st::modifiers() == md::Turbo);
+        CHECK(st::forced(st::SuperJump) && st::forced(st::Turbo) && st::get(st::SuperJump) == 0 && st::get(st::Turbo) == 1);
+        CHECK(st::g_val[st::SuperJump].load() == 1);   // the player's own choice is still stored
+        st::g_netProfile.store(false);
+        st::g_netMods.store(0);
+        CHECK(st::modifiers() == (md::Jump | md::Fast | md::Turbo));
+        int v = -1;
+        CHECK(st::parse(st::Turbo, "1", v) && v == 1 && st::parse(st::Turbo, "0", v) && v == 0);
+        CHECK(std::string(st::kEnv[st::SuperJump]) == "WOTM_SUPERJUMP" && std::string(st::kEnv[st::Turbo]) == "WOTM_TURBO");
+        st::g_val[st::SuperJump].store(0), st::g_val[st::FastMonsters].store(0), st::g_val[st::Turbo].store(0);
+    }
+
     // Network match profile (wotm_settings.hpp): settings that change game state take the fixed profile on every PC, the
     // player's own values are kept and come back outside network play; video settings stay free
     TEST(netplay_profile_forces_gameplay_settings_only)
@@ -259,6 +314,126 @@ namespace
         CHECK(wotm::mods::digest(b) != base);
         fs::remove_all(root);
     }
+}
+
+namespace
+{
+    namespace dm = wotm::detmath;
+
+    uint32_t bitsOf(float f)
+    {
+        uint32_t u;
+        std::memcpy(&u, &f, 4);
+        return u;
+    }
+    float floatOf(uint32_t u)
+    {
+        float f;
+        std::memcpy(&f, &u, 4);
+        return f;
+    }
+    // distance in representable floats (same sign only, which is all the accuracy checks below need)
+    uint32_t ulps(float a, float b)
+    {
+        const uint32_t x = bitsOf(a) & 0x7FFFFFFFu, y = bitsOf(b) & 0x7FFFFFFFu;
+        return (bitsOf(a) >> 31) != (bitsOf(b) >> 31) ? (x + y) : (x > y ? x - y : y - x);
+    }
+    // fixed inputs for the accuracy and determinism checks: a small LCG, so every machine sees the same list
+    std::vector<float> sweep(int n, float lo, float hi)
+    {
+        std::vector<float> v;
+        uint32_t s = 12345u;
+        for (int i = 0; i < n; ++i)
+        {
+            s = s * 1664525u + 1013904223u;
+            v.push_back(lo + (hi - lo) * float(s >> 8) / float(1u << 24));
+        }
+        return v;
+    }
+}
+
+TEST(detmath_sin_cos_equal_retail_bit_for_bit)
+{
+    int bad = 0;
+    for (const wotm::TrigGolden &g : wotm::kTrigGoldens)
+        bad += bitsOf(dm::sinf(floatOf(g.x))) != g.sin || bitsOf(dm::cosf(floatOf(g.x))) != g.cos;
+    CHECK(bad == 0);
+}
+
+TEST(detmath_sin_cos_within_one_ulp)
+{
+    uint32_t worst = 0;
+    for (float x : sweep(20000, -1000.f, 1000.f))
+    {
+        worst = std::max(worst, ulps(dm::sinf(x), float(std::sin(double(x)))));
+        worst = std::max(worst, ulps(dm::cosf(x), float(std::cos(double(x)))));
+    }
+    CHECK(worst <= 1);
+}
+
+TEST(detmath_atan2_special_cases)
+{
+    const float pi = floatOf(0x40490FDBu), halfPi = floatOf(0x3FC90FDBu);
+    CHECK(bitsOf(dm::atan2f(0.f, 1.f)) == 0u);
+    CHECK(bitsOf(dm::atan2f(-0.f, 1.f)) == 0x80000000u);
+    CHECK(dm::atan2f(0.f, -1.f) == pi);
+    CHECK(dm::atan2f(-0.f, -1.f) == -pi);
+    CHECK(dm::atan2f(1.f, 0.f) == halfPi);
+    CHECK(dm::atan2f(-1.f, 0.f) == -halfPi);
+    CHECK(dm::atan2f(5.f, -0.f) == halfPi);
+}
+
+TEST(detmath_atan2_within_one_ulp)
+{
+    const std::vector<float> ys = sweep(20000, -500.f, 500.f), xs = sweep(20001, -500.f, 500.f);
+    uint32_t worst = 0;
+    for (size_t i = 0; i < ys.size(); ++i)
+        worst = std::max(worst, ulps(dm::atan2f(ys[i], xs[i + 1]), float(std::atan2(double(ys[i]), double(xs[i + 1])))));
+    CHECK(worst <= 1);
+}
+
+// The point of wotm_detmath.hpp: the same bits on every compiler and CPU. The expected digest was measured on the Mac (clang,
+// arm64); Windows (MSVC, x64) must print the same, or its build computes the camera differently and a network match desyncs.
+TEST(detmath_same_bits_on_every_machine)
+{
+    uint64_t h = 1469598103934665603ull;   // FNV-1a over the result bits
+    auto mix = [&h](float f) {
+        const uint32_t u = bitsOf(f);
+        for (int k = 0; k < 4; ++k)
+            h = (h ^ ((u >> (8 * k)) & 0xFFu)) * 1099511628211ull;
+    };
+    const std::vector<float> a = sweep(50000, -20000.f, 20000.f), b = sweep(50001, -3.f, 3.f);
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        mix(dm::sinf(a[i]));
+        mix(dm::cosf(a[i]));
+        mix(dm::atan2f(a[i], b[i + 1]));
+        mix(dm::atan2f(b[i], b[i + 1]));
+    }
+    std::printf("  detmath digest %016llx\n", static_cast<unsigned long long>(h));
+    CHECK(h == 0xa6c8104174bda8ccull);
+}
+
+// The orbit (and the F5 free camera) write these axes into the game camera's matrix, which then decides culling, LOD and
+// particles: they must come from wotm::detmath, not the system libm, or Windows and the Mac drift apart (stage 2, frame 1003).
+TEST(freecam_axes_use_deterministic_trig)
+{
+    int bad = 0;
+    const std::vector<float> hs = sweep(5000, -7.f, 7.f), ps = sweep(5001, -1.5f, 1.5f);
+    for (size_t i = 0; i < hs.size(); ++i)
+    {
+        WotmFreeCamPose p;
+        p.heading = hs[i];
+        p.pitch = ps[i + 1];
+        float r[3], f[3], u[3];
+        wotmFreeCamAxes(p, r, f, u);
+        const float sh = dm::sinf(p.heading), ch = dm::cosf(p.heading), sp = dm::sinf(p.pitch), cp = dm::cosf(p.pitch);
+        const float want[9] = {ch, -sh, 0.f, cp * sh, cp * ch, sp, -sp * sh, -sp * ch, cp};
+        const float got[9] = {r[0], r[1], r[2], f[0], f[1], f[2], u[0], u[1], u[2]};
+        for (int k = 0; k < 9; ++k)
+            bad += bitsOf(got[k]) != bitsOf(want[k]);
+    }
+    CHECK(bad == 0);
 }
 
 int main()

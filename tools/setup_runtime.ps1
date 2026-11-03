@@ -26,9 +26,9 @@ $cmake = @((Get-Command cmake -ErrorAction SilentlyContinue).Source, 'C:\Program
 if (-not $cmake) { Fail 'CMake 3.24 or newer is missing (winget install Kitware.CMake)' }
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path $vswhere)) { Fail 'Visual Studio 2022 / Build Tools with C++ is missing (winget install Microsoft.VisualStudio.2022.BuildTools)' }
-# Online matches: the translated game is compiled with /fp:fast, so every PC in a match needs the same compiler. The pinned one is
-# MSVC 14.44 (VS 2022 17.14); tools\build_id.py puts the exact version in wotm.buildid and the server rejects mismatched builds.
-# -AnyCompiler accepts another 14.40+ (offline play; online only with players who have the same one).
+# The pinned compiler is MSVC 14.44 (VS 2022 17.14), the one online matches are tested with. Game code builds with strict FP and
+# the build id leaves the compiler out; if another compiler simulates differently, the server's per-frame state hash stops the match.
+# -AnyCompiler accepts another 14.40+ (untested online).
 $pinnedMsvc = '14.44'
 $vcvars = $null; $vcvarsArgs = ''
 foreach ($vs in (& $vswhere -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)) {
@@ -42,7 +42,7 @@ if (-not $vcvars) {
           "'MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44-17.14)' (every PC in an online match needs it). " +
           'To play offline only with another 14.40+ compiler: -AnyCompiler')
 }
-if (-not $vcvarsArgs) { Write-Host "WARNING: MSVC $pinnedMsvc not found; online play only with players who have the same compiler" -ForegroundColor Yellow }
+if (-not $vcvarsArgs) { Write-Host "WARNING: MSVC $pinnedMsvc not found; online play with another compiler is untested" -ForegroundColor Yellow }
 Write-Host "cmake: $cmake`nvcvars: $vcvars $vcvarsArgs"
 
 # --- disc

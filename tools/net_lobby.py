@@ -2,6 +2,8 @@
 # ABOUTME: Command-line client for the wotm_server lobby: lists lobbies, creates one or joins by code, starts the match and prints the
 # ABOUTME: wotm.exe environment variables (WOTM_NET, WOTM_NETTOKEN, WOTM_MATCH...). Used by tools/net_check.ps1 and by players without the launcher.
 """Usage:
+  python tools/net_lobby.py --browse <master>[:7778]
+      lists the public servers (those started with wotm_server --announce): name, address, open lobbies, players and ping
   python tools/net_lobby.py --server <host>:<port> --list
   python tools/net_lobby.py --server <host>:<port> --create <lobby> --name Ana --monster 3 [--password <password>]
                             [--stage <stage>] [--wins <wins>] [--start-with <players>]
@@ -14,11 +16,14 @@
 The build (--build) must match the wotm.exe's: the default is the wotm.buildid next to the runtime's exe (tools\\build_runtime.ps1).
 """
 import argparse
+import concurrent.futures
 import socket
 import sys
+import time
 from pathlib import Path
 
 PROTOCOL = 2
+MASTER_PORT = 7778   # wotm_server --master (proto::kDefaultMasterPort)
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -112,9 +117,11 @@ class Lobby:
     def _settings(line):
         return dict(kv.split('=', 1) for kv in line.split()[2:] if '=' in kv)
 
-    def set(self, stage=None, wins=None):
-        """Owner only: stage and wins for the next match; returns what the server stored."""
-        parts = ([f'stage={stage}'] if stage is not None else []) + ([f'wins={wins}'] if wins is not None else [])
+    def set(self, stage=None, wins=None, mods=None):
+        """Owner only: stage, wins and gameplay modifiers ("jump,fast,turbo", "" = none) for the next match; returns what
+        the server stored."""
+        parts = ([f'stage={stage}'] if stage is not None else []) + ([f'wins={wins}'] if wins is not None else []) + \
+            ([f'mods={mods}'] if mods is not None else [])
         self.send('SET ' + ' '.join(parts))
         self.settings = self._settings(self.expect('SETTINGS'))
         return self.settings
@@ -145,12 +152,13 @@ def match_env(match, host):
         'WOTM_FIXEDSTEP': match['step'],
         'WOTM_SEED': match['seed'],
         'WOTM_KILLTARGET': match.get('wins', '0'),
+        'WOTM_MODIFIERS': match.get('mods', ''),
         'WOTM_LOCALPLAYER': str(int(match['you']) + 1),
     }
     return env
 
 
-def form_group(host, port, names, monsters, stage, build, wins=0):
+def form_group(host, port, names, monsters, stage, build, wins=0, mods=''):
     """The first name creates a lobby, the others join by code, the first picks stage and wins and starts; returns each
     player's environment, in order."""
     members = []
@@ -161,12 +169,57 @@ def form_group(host, port, names, monsters, stage, build, wins=0):
                 code = members[0].create('teste', name, monster)
             else:
                 members[-1].join(code, name, monster)
-        members[0].set(stage=stage, wins=wins)
+        members[0].set(stage=stage, wins=wins, mods=mods)
         members[0].start()
         return [match_env(m.wait_match(), host) for m in members]
     finally:
         for m in members:
             m.close()
+
+
+def ping_ms(host, port, timeout=1.5):
+    """Milliseconds to open a TCP connection to a server's lobby port, or None if nothing answers (offline, or a router that doesn't
+    forward the port)."""
+    t0 = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return round((time.monotonic() - t0) * 1000)
+    except OSError:
+        return None
+
+
+def browse(host, port=MASTER_PORT, timeout=5.0):
+    """The master server's public list (SERVERS, native/net/wotm_net_master.hpp): one dict per server, with its lobby counts and a
+    ping measured from here."""
+    with socket.create_connection((host, port), timeout=timeout) as s:
+        s.settimeout(timeout)
+        s.sendall(b'SERVERS\n')
+        buf = b''
+        while not buf.endswith(b'END\n'):
+            data = s.recv(4096)
+            if not data:
+                break
+            buf += data
+    rows = []
+    for line in buf.decode(errors='replace').splitlines():
+        w = line.split()
+        if len(w) == 9 and w[0] == 'SERVER':
+            rows.append({'ip': w[1], 'port': int(w[2]), 'protocol': int(w[3]), 'open': int(w[4]), 'waiting': int(w[5]),
+                         'players': int(w[6]), 'max': int(w[7]), 'name': w[8]})
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        for r, ms in zip(rows, pool.map(lambda r: ping_ms(r['ip'], r['port']), rows)):
+            r['ping'] = ms
+    return rows
+
+
+def row_text(r):
+    """One line of --browse: name, address, lobbies (and how many wait for players), players, ping."""
+    lobbies = f"{r['open']} {'lobby' if r['open'] == 1 else 'lobbies'} ({r['waiting']} waiting)"
+    players = f"{r['players']} {'player' if r['players'] == 1 else 'players'}"
+    text = f"{r['name']:<16}  {r['ip'] + ':' + str(r['port']):<21}  {lobbies}  {players}  "
+    if r['protocol'] != PROTOCOL:
+        text += f"needs another version (protocol {r['protocol']})  "
+    return text + ('unreachable' if r['ping'] is None else f"ping {r['ping']} ms")
 
 
 def default_build():
@@ -179,7 +232,8 @@ def default_build():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--server', required=True, help='host:port of the wotm_server')
+    ap.add_argument('--server', help='host:port of the wotm_server')
+    ap.add_argument('--browse', metavar='MASTER', help='host[:port] of a master server: list the public servers')
     ap.add_argument('--build', default=None)
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--create', metavar='LOBBY')
@@ -192,8 +246,25 @@ def main():
     ap.add_argument('--monsters')
     ap.add_argument('--stage', type=int, default=1)
     ap.add_argument('--wins', type=int, default=0)
+    ap.add_argument('--mods', default='', help='gameplay modifiers for the match: comma list of jump, fast, turbo')
     ap.add_argument('--env-dir')
     a = ap.parse_args()
+    if a.browse:
+        mhost, _, mport = a.browse.rpartition(':')
+        if not mhost:
+            mhost, mport = a.browse, str(MASTER_PORT)
+        try:
+            rows = browse(mhost, int(mport))
+        except OSError as e:
+            print(f'master: {e}', file=sys.stderr)
+            return 1
+        for r in rows:
+            print(row_text(r))
+        if not rows:
+            print('no public servers right now', file=sys.stderr)
+        return 0
+    if not a.server:
+        ap.error('--server <host>:<port> (or --browse <master>)')
     host, _, port = a.server.rpartition(':')
     if not host:
         host, port = a.server, '7777'
@@ -208,7 +279,7 @@ def main():
         if a.group:
             names = a.group.split(',')
             monsters = [int(m) for m in a.monsters.split(',')]
-            envs = form_group(host, int(port), names, monsters, a.stage, build, a.wins)
+            envs = form_group(host, int(port), names, monsters, a.stage, build, a.wins, a.mods)
             out = Path(a.env_dir or '.')
             for i, env in enumerate(envs, 1):
                 (out / f'env_{i}.txt').write_text(''.join(f'{k}={v}\n' for k, v in env.items()))
@@ -220,7 +291,7 @@ def main():
             if a.create:
                 code = m.create(a.create, a.name, a.monster, a.password)
                 print(f'lobby created, code {code}', file=sys.stderr, flush=True)
-                m.set(stage=a.stage, wins=a.wins)
+                m.set(stage=a.stage, wins=a.wins, mods=a.mods)
                 if a.start_with:
                     m.wait_members(a.start_with)
                     m.start()

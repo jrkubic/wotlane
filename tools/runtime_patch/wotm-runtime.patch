@@ -197,7 +197,7 @@ index 0000000..9095b52
 +    }
 +}
 diff --git a/ps2xRuntime/CMakeLists.txt b/ps2xRuntime/CMakeLists.txt
-index 589d768..11510af 100644
+index 589d768..c5c3193 100644
 --- a/ps2xRuntime/CMakeLists.txt
 +++ b/ps2xRuntime/CMakeLists.txt
 @@ -393,6 +393,7 @@ add_library(ps2_runtime STATIC
@@ -312,12 +312,12 @@ index 589d768..11510af 100644
      EnableFastReleaseMode(ps2_runtime)
      EnableFastReleaseMode(ps2EntryRunner)
 +    if(TARGET ps2_game_code)
-+        EnableFastReleaseMode(ps2_game_code)
++        EnableFastReleaseMode(ps2_game_code STRICT_FP)
 +    endif()
  
      if(WIN32 AND NOT PS2X_SHOW_WINDOWS_CONSOLE)
          if(MSVC)
-@@ -608,3 +645,89 @@ endif()
+@@ -608,3 +645,94 @@ endif()
  install(DIRECTORY include/
      DESTINATION include
  )
@@ -343,6 +343,7 @@ index 589d768..11510af 100644
 +target_sources(ps2_runtime PRIVATE
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_overrides.cpp"
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_vu0_native.cpp"
++    "${WOTM_NATIVE_DIR}/wotm_detmath.cpp"
 +)
 +# WotM, macOS/Linux: crash stack trace and the macOS menu bar/Dock in fullscreen (wotm_posix.cpp; system headers that clash with raylib)
 +if(NOT WIN32)
@@ -350,8 +351,12 @@ index 589d768..11510af 100644
 +    set_source_files_properties("${WOTM_NATIVE_DIR}/runtime/wotm_posix.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 +endif()
 +# Native VU0 and the VU1 interpreter: VU arithmetic (madd with two roundings, toward zero) does not survive /fp:fast
-+# (contraction into FMA; on the VU1 Ultra-V's rope picked up a noisy tangent where its points coincide)
++# (contraction into FMA; on the VU1 Ultra-V's rope picked up a noisy tangent where its points coincide). The runtime hooks
++# (wotm_overrides.cpp and its .inc files) too: their float results reach guest RAM (the orbit camera's pose), so they must give
++# the same bits on every compiler and CPU, or two PCs in a network match desync. wotm_detmath.cpp is the trig they use for it
 +set(WOTM_VU_STRICT_SOURCES
++    "${WOTM_NATIVE_DIR}/runtime/wotm_overrides.cpp"
++    "${WOTM_NATIVE_DIR}/wotm_detmath.cpp"
 +    "${WOTM_NATIVE_DIR}/runtime/wotm_vu0_native.cpp"
 +    "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/ps2_vu1_core.cpp"
 +    "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/vu/ps2_vu1_upper.cpp"
@@ -408,13 +413,22 @@ index 589d768..11510af 100644
 +    ps2x_stage_ffmpeg_runtime_dlls(wotm)
 +endif()
 diff --git a/ps2xRuntime/cmake/ReleaseMode.cmake b/ps2xRuntime/cmake/ReleaseMode.cmake
-index 92ef0d5..f8c0730 100644
+index 92ef0d5..d7c208c 100644
 --- a/ps2xRuntime/cmake/ReleaseMode.cmake
 +++ b/ps2xRuntime/cmake/ReleaseMode.cmake
-@@ -4,6 +4,27 @@ check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+@@ -4,6 +4,36 @@ check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
  
  function(EnableFastReleaseMode TargetName)
      message("> Enabling optimization for: ${TargetName}")
++    # WotM: STRICT_FP (the translated game code) keeps every float operation rounded on its own, as on the PS2: no /fp:fast and no
++    # FMA contraction, so MSVC/x86 and clang/arm64 compute the same game state (online play across Windows and Mac)
++    set(_wotmFp /fp:fast)
++    if("STRICT_FP" IN_LIST ARGN)
++        set(_wotmFp /fp:precise)
++        if(NOT MSVC)
++            target_compile_options(${TargetName} PRIVATE -ffp-contract=off)
++        endif()
++    endif()
 +    # WotM: gcc/clang on x86 get the same instruction set as MSVC's /arch:AVX2 below (ps2_runtime_macros.h and native/ use SSE4.1
 +    # intrinsics); ARM builds go through sse2neon and need nothing here
 +    if(NOT MSVC AND NOT PS2X_IS_ARM_TARGET)
@@ -425,7 +439,7 @@ index 92ef0d5..f8c0730 100644
 +        # Linking drops from ~25 min to seconds/minutes; the code gets a little slower (no inlining across files).
 +        if(MSVC)
 +            target_compile_options(${TargetName} PRIVATE
-+                $<$<CONFIG:Release>:/O2 /Ob2 /Oi /Gy /Gw /GF /Zc:inline /fp:fast /DNDEBUG /arch:AVX2 /GS- /Qspectre->)
++                $<$<CONFIG:Release>:/O2 /Ob2 /Oi /Gy /Gw /GF /Zc:inline ${_wotmFp} /DNDEBUG /arch:AVX2 /GS- /Qspectre->)
 +            # WotM: PDB with public symbols only (no /Zi) plus a .map, so the host sampler (PS2X_HOSTPROF) and [CRASH] reports
 +            # can show names; /OPT:REF /OPT:ICF keep the binary the same as without /DEBUG
 +            get_target_property(_wotmType ${TargetName} TYPE)
@@ -439,6 +453,15 @@ index 92ef0d5..f8c0730 100644
      if(MSVC)
          target_compile_options(${TargetName} PRIVATE
              $<$<CONFIG:Release>:
+@@ -15,7 +45,7 @@ function(EnableFastReleaseMode TargetName)
+                 /Gw # global data in COMDAT
+                 /GF # string pooling
+                 /Zc:inline # remove unreferenced inline
+-                /fp:fast # fast math (graphics friendly)
++                ${_wotmFp} # fast math (graphics friendly); /fp:precise with STRICT_FP
+                 /DNDEBUG
+                 /arch:AVX2 # Advanced Vector Extensions 2
+                 /GS- # Disable Buffer Security Check (faster)
 diff --git a/ps2xRuntime/include/ps2_call_list.h b/ps2xRuntime/include/ps2_call_list.h
 index 94a6fa1..01ba50f 100644
 --- a/ps2xRuntime/include/ps2_call_list.h
@@ -568,7 +591,7 @@ index 4b9242c..9573c70 100644
 +
  #endif // PS2_RUNTIME_H
 diff --git a/ps2xRuntime/include/ps2_runtime_macros.h b/ps2xRuntime/include/ps2_runtime_macros.h
-index 0f19c9f..e2b578c 100644
+index 0f19c9f..02bbec7 100644
 --- a/ps2xRuntime/include/ps2_runtime_macros.h
 +++ b/ps2xRuntime/include/ps2_runtime_macros.h
 @@ -14,7 +14,17 @@
@@ -599,7 +622,50 @@ index 0f19c9f..e2b578c 100644
  {
      if ((index & 1) == 0)
      {
-@@ -152,165 +162,79 @@ static inline uint32_t ps2_plzcw32(uint32_t x)
+@@ -141,176 +151,117 @@ static inline uint32_t ps2_plzcw32(uint32_t x)
+ #define PS2_PNOR(a, b) _mm_xor_si128(_mm_or_si128((__m128i)(a), (__m128i)(b)), _mm_set1_epi32(0xFFFFFFFF))
+ 
+ // PS2 VU (Vector Unit) operations
+-#define PS2_VADD(a, b) _mm_add_ps((__m128)(a), (__m128)(b))
+-#define PS2_VSUB(a, b) _mm_sub_ps((__m128)(a), (__m128)(b))
+-#define PS2_VMUL(a, b) _mm_mul_ps((__m128)(a), (__m128)(b))
+-#define PS2_VDIV(a, b) _mm_div_ps((__m128)(a), (__m128)(b))
+-#define PS2_VMULQ(a, q) _mm_mul_ps((__m128)(a), _mm_set1_ps(q))
++// WotM: the VU follows the same float rules as the FPU (ps2_fpu_fix, below): no infinity, NaN or denormals. Each lane of every
++// operand and result goes through ps2_vu_fix: exponent 255 -> +-Fmax, exponent 0 -> +-0. Done with integer ops, so the bits are the
++// same on x86 and ARM; with plain IEEE math an overflow became inf, inf - inf a NaN, and x86 (0xFFC00000) and ARM (0x7FC00000)
++// encode that NaN differently, which split the game state of a Windows x Mac network match.
++static PS2_FORCEINLINE __m128 ps2_vu_fix(__m128 v)
++{
++    const __m128i b = _mm_castps_si128(v);
++    const __m128i sign = _mm_and_si128(b, _mm_set1_epi32(int32_t(0x80000000u)));
++    const __m128i exp = _mm_and_si128(b, _mm_set1_epi32(0x7F800000));
++    const __m128i isMax = _mm_cmpeq_epi32(exp, _mm_set1_epi32(0x7F800000));
++    const __m128i isZero = _mm_cmpeq_epi32(exp, _mm_setzero_si128());
++    const __m128i fmax = _mm_or_si128(sign, _mm_set1_epi32(0x7F7FFFFF));
++    __m128i r = _mm_or_si128(_mm_andnot_si128(isMax, b), _mm_and_si128(isMax, fmax));
++    r = _mm_or_si128(_mm_andnot_si128(isZero, r), _mm_and_si128(isZero, sign));
++    return _mm_castsi128_ps(r);
++}
++// x / 0 (0 / 0 included) is +-Fmax with the xor of the signs, like ps2_fpu_div
++static PS2_FORCEINLINE __m128 ps2_vu_div(__m128 a, __m128 b)
++{
++    a = ps2_vu_fix(a);
++    b = ps2_vu_fix(b);
++    const __m128i ai = _mm_castps_si128(a), bi = _mm_castps_si128(b);
++    const __m128i byZero = _mm_cmpeq_epi32(_mm_and_si128(bi, _mm_set1_epi32(0x7FFFFFFF)), _mm_setzero_si128());
++    const __m128i fmax = _mm_or_si128(_mm_and_si128(_mm_xor_si128(ai, bi), _mm_set1_epi32(int32_t(0x80000000u))), _mm_set1_epi32(0x7F7FFFFF));
++    const __m128i q = _mm_castps_si128(ps2_vu_fix(_mm_div_ps(a, b)));
++    return _mm_castsi128_ps(_mm_or_si128(_mm_andnot_si128(byZero, q), _mm_and_si128(byZero, fmax)));
++}
++#define PS2_VADD(a, b) ps2_vu_fix(_mm_add_ps(ps2_vu_fix((__m128)(a)), ps2_vu_fix((__m128)(b))))
++#define PS2_VSUB(a, b) ps2_vu_fix(_mm_sub_ps(ps2_vu_fix((__m128)(a)), ps2_vu_fix((__m128)(b))))
++#define PS2_VMUL(a, b) ps2_vu_fix(_mm_mul_ps(ps2_vu_fix((__m128)(a)), ps2_vu_fix((__m128)(b))))
++#define PS2_VDIV(a, b) ps2_vu_div((__m128)(a), (__m128)(b))
++#define PS2_VMULQ(a, q) ps2_vu_fix(_mm_mul_ps(ps2_vu_fix((__m128)(a)), ps2_vu_fix(_mm_set1_ps(q))))
+ #define PS2_VBLEND(a, b, mask) PS2_BLENDV_PS((__m128)(a), (__m128)(b), (__m128)(mask))
+ 
+ // Memory access helpers - Hybrid Fast/Slow Path
  // Fast path: Direct RDRAM access (masked).
  // Slow path: Full runtime->Load/Store
  
@@ -610,15 +676,15 @@ index 0f19c9f..e2b578c 100644
  }
  
 -static inline uint8_t Ps2FastRead8(const uint8_t *rdram, uint32_t addr)
-+// Rare path (the access runs past the end of RAM and wraps around): out of line, so the fast path fits in full at every use.
-+template <typename T>
-+static PS2_NOINLINE T Ps2FastReadWrapped(const uint8_t *rdram, uint32_t offset)
- {
+-{
 -    return rdram[addr & PS2_RAM_MASK];
 -}
 -
 -static inline uint16_t Ps2FastRead16(const uint8_t *rdram, uint32_t addr)
--{
++// Rare path (the access runs past the end of RAM and wraps around): out of line, so the fast path fits in full at every use.
++template <typename T>
++static PS2_NOINLINE T Ps2FastReadWrapped(const uint8_t *rdram, uint32_t offset)
+ {
 -    const uint32_t offset = addr & PS2_RAM_MASK;
 -    if (!Ps2FastRangeIsContiguous(offset, sizeof(uint16_t)))
 +    alignas(16) uint8_t wrapped[sizeof(T)];
@@ -802,7 +868,7 @@ index 0f19c9f..e2b578c 100644
  #define FAST_READ8(addr) Ps2FastRead8(rdram, (uint32_t)(addr))
  #define FAST_READ16(addr) Ps2FastRead16(rdram, (uint32_t)(addr))
  #define FAST_READ32(addr) Ps2FastRead32(rdram, (uint32_t)(addr))
-@@ -323,32 +247,62 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -323,32 +274,62 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
  #define FAST_WRITE64(addr, val) Ps2FastWrite64(rdram, (uint32_t)(addr), (uint64_t)(val))
  #define FAST_WRITE128(addr, val) Ps2FastWrite128(rdram, (uint32_t)(addr), (val))
  
@@ -865,7 +931,7 @@ index 0f19c9f..e2b578c 100644
      return PS2Runtime::isSpecialAddress(_addr)                \
          ? runtime->Load128(rdram, ctx, _addr)                 \
          : FAST_READ128(_addr); }())
-@@ -356,8 +310,12 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -356,8 +337,12 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
  #define WRITE8(addr, val)                                                            \
      do                                                                               \
      {                                                                                \
@@ -880,7 +946,7 @@ index 0f19c9f..e2b578c 100644
              runtime->Store8(rdram, ctx, _addr, (val));                               \
          else                                                                         \
          {                                                                            \
-@@ -370,7 +328,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -370,7 +355,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
      do                                                                                 \
      {                                                                                  \
          uint32_t _addr = (addr);                                                       \
@@ -893,7 +959,7 @@ index 0f19c9f..e2b578c 100644
              runtime->Store16(rdram, ctx, _addr, (val));                                \
          else                                                                           \
          {                                                                              \
-@@ -383,7 +345,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -383,7 +372,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
      do                                                                                 \
      {                                                                                  \
          uint32_t _addr = (addr);                                                       \
@@ -906,7 +972,7 @@ index 0f19c9f..e2b578c 100644
              runtime->Store32(rdram, ctx, _addr, (val));                                \
          else                                                                           \
          {                                                                              \
-@@ -396,7 +362,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -396,7 +389,11 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
      do                                                                                 \
      {                                                                                  \
          uint32_t _addr = (addr);                                                       \
@@ -919,7 +985,7 @@ index 0f19c9f..e2b578c 100644
              runtime->Store64(rdram, ctx, _addr, (val));                                \
          else                                                                           \
          {                                                                              \
-@@ -410,7 +380,9 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
+@@ -410,7 +407,9 @@ static inline void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m128i value)
      {                                                                                \
          uint32_t _addr = (addr);                                                     \
          __m128i _value = (val);                                                      \
@@ -930,7 +996,7 @@ index 0f19c9f..e2b578c 100644
              runtime->Store128(rdram, ctx, _addr, _value);                            \
          else                                                                         \
          {                                                                            \
-@@ -604,11 +576,68 @@ inline __m128i ps2_u64_to_epi64_pair(uint64_t value)
+@@ -604,11 +603,68 @@ inline __m128i ps2_u64_to_epi64_pair(uint64_t value)
  #define PS2_PMFHL_SH(hi, lo) _mm_shufflehi_epi16(_mm_shufflelo_epi16(_mm_packs_epi32(ps2_u64_to_epi64_pair(lo), ps2_u64_to_epi64_pair(hi)), _MM_SHUFFLE(3, 1, 2, 0)), _MM_SHUFFLE(3, 1, 2, 0))
  
  // FPU (COP1) operations
@@ -1003,7 +1069,7 @@ index 0f19c9f..e2b578c 100644
  #define FPU_SQRT_S(a) sqrtf((float)(a))
  #define FPU_ABS_S(a) fabsf((float)(a))
  #define FPU_MOV_S(a) ((float)(a))
-@@ -618,12 +647,12 @@ inline __m128i ps2_u64_to_epi64_pair(uint64_t value)
+@@ -618,12 +674,12 @@ inline __m128i ps2_u64_to_epi64_pair(uint64_t value)
  #define FPU_CEIL_L_S(a) ((int64_t)ceilf((float)(a)))
  #define FPU_FLOOR_L_S(a) ((int64_t)floorf((float)(a)))
  #define FPU_ROUND_W_S(a) ((int32_t)nearbyintf((float)(a)))
@@ -1018,7 +1084,7 @@ index 0f19c9f..e2b578c 100644
  #define FPU_CVT_L_S(a) ((int64_t)(float)(a))
  #define FPU_C_F_S(a, b) (0)
  #define FPU_C_UN_S(a, b) (isnan((float)(a)) || isnan((float)(b)))
-@@ -739,7 +768,7 @@ inline __m128i ps2_qfsrv(__m128i rs, __m128i rt, uint32_t sa)
+@@ -739,7 +795,7 @@ inline __m128i ps2_qfsrv(__m128i rs, __m128i rt, uint32_t sa)
  #define GPR_S64(ctx_ptr, reg_idx) ((reg_idx == 0) ? 0LL : PS2_EXTRACT_EPI64_0(ctx_ptr->r[reg_idx]))
  #define GPR_VEC(ctx_ptr, reg_idx) ((reg_idx == 0) ? _mm_setzero_si128() : ctx_ptr->r[reg_idx])
  
@@ -1075,6 +1141,55 @@ index f247ff9..5568b05 100644
  
      mutable std::mutex m_snapshotMutex;
      EeKernelSnapshot m_snapshot;
+diff --git a/ps2xRuntime/include/runtime/ee_vblank_clock.h b/ps2xRuntime/include/runtime/ee_vblank_clock.h
+new file mode 100644
+index 0000000..5e0e5cd
+--- /dev/null
++++ b/ps2xRuntime/include/runtime/ee_vblank_clock.h
+@@ -0,0 +1,43 @@
++#pragma once
++// WoTM: the vblank clock of the game executable's scheduler (EeSchedulerGame.cpp): a fixed 16.667 ms grid on the host, kept by a
++// host thread that counts the vblanks that fell due for the EE to apply. Header-only so ps2xTest can test it without the game
++// scheduler (which only links into wotm). The caller holds the scheduler's event mutex around every call.
++
++#include <chrono>
++#include <cstdint>
++
++struct EeVBlankClock
++{
++    using Clock = std::chrono::steady_clock;
++    static constexpr std::chrono::microseconds kPeriod{16667};
++
++    Clock::time_point next{};   // when the next vblank falls due
++    uint32_t due = 0;           // vblanks that fell due and the EE has not applied yet
++
++    void start(Clock::time_point now)
++    {
++        due = 0;
++        next = now + kPeriod;
++    }
++
++    // Timer thread, woken at or after `next`: counts one vblank and moves the grid on. After a stall of more than 4 vblanks the grid
++    // restarts from now, so the EE applies one vblank instead of a burst of late ones. False when woken early.
++    bool fire(Clock::time_point now)
++    {
++        if (now < next)
++            return false;
++        if (now - next > 4 * kPeriod)
++            next = now;
++        next += kPeriod;
++        ++due;
++        return true;
++    }
++
++    // The EE comes back from a host-side pause (network wait, photo mode): the vblanks counted meanwhile don't all fire on resume.
++    // `next` stays where it is: fire() kept the grid running during the pause, so it is already within one period of now; adding
++    // the pause would leave the game waiting that long again (in a network match the two PCs then take turns waiting for each other).
++    void resume()
++    {
++        due = 0;
++    }
++};
 diff --git a/ps2xRuntime/include/runtime/ps2_address.h b/ps2xRuntime/include/runtime/ps2_address.h
 index f7689e0..2376b51 100644
 --- a/ps2xRuntime/include/runtime/ps2_address.h
@@ -1696,10 +1811,10 @@ index c5e31c4..e454f4e 100644
  bool EeScheduler::hasReadyAtOrAbovePriority(int priority) const
 diff --git a/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp b/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp
 new file mode 100644
-index 0000000..f2357f5
+index 0000000..a81f965
 --- /dev/null
 +++ b/ps2xRuntime/src/lib/Kernel/EeSchedulerGame.cpp
-@@ -0,0 +1,1339 @@
+@@ -0,0 +1,1334 @@
 +// WoTM (step 10 of docs/passos/FRONTEIRA.md in the WoTM repo): EeScheduler for the game executable (wotm), replacing EeScheduler.cpp.
 +// Measured in step 8: WotM uses a single thread (the main one), no INTC handler, one DMAC handler (hierSetDmaIntHandler,
 +// channel 1) and the vblank (sceGsSyncV); no semaphore, event flag, sleep or alarm in use. So there is no ready queue, time
@@ -1715,6 +1830,7 @@ index 0000000..f2357f5
 +//  - other threads: CreateThread registers them, StartThread fails with a warning (there is no second flow of execution).
 +// ps2EntryRunner keeps the full EeScheduler.cpp.
 +#include "runtime/ee_scheduler.h"
++#include "runtime/ee_vblank_clock.h"
 +
 +#include "ps2_log.h"
 +#include "ps2_runtime_macros.h"
@@ -1766,7 +1882,7 @@ index 0000000..f2357f5
 +    constexpr uint32_t WEF_CLEAR_ALL = 0x20u;
 +
 +    using Clock = std::chrono::steady_clock;
-+    constexpr auto kVBlankPeriod = std::chrono::microseconds(16667);
++    constexpr auto kVBlankPeriod = EeVBlankClock::kPeriod;
 +    constexpr size_t kMaxInvocationDepth = 48u;   // main.invocations reserves 64: each level's context never moves
 +
 +    struct ExternalWait
@@ -1787,8 +1903,7 @@ index 0000000..f2357f5
 +        std::thread timer;
 +        std::condition_variable timerCv;
 +        // guarded by m_eventMutex
-+        uint32_t vblankDue = 0;
-+        Clock::time_point next{};
++        EeVBlankClock vblank;
 +        bool waiting = false;
 +        bool stallOpen = false;
 +        Clock::time_point stallStart{};
@@ -1886,7 +2001,7 @@ index 0000000..f2357f5
 +        std::lock_guard lock(m_eventMutex);
 +        m_events.clear();
 +        m_pendingInvocations.clear();
-+        G.vblankDue = 0;
++        G.vblank.due = 0;
 +        G.waiting = false;
 +        G.stallOpen = false;
 +    }
@@ -1925,8 +2040,7 @@ index 0000000..f2357f5
 +    m_running.store(true, std::memory_order_release);
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        G.vblankDue = 0;
-+        G.next = Clock::now() + kVBlankPeriod;
++        G.vblank.start(Clock::now());
 +    }
 +    // Vblank clock: a fixed grid on the host. After a stall of more than 4 vblanks the grid restarts from now, and the EE applies
 +    // just one (wotmService) instead of firing all the late ones at once.
@@ -1935,19 +2049,15 @@ index 0000000..f2357f5
 +        std::unique_lock lock(m_eventMutex);
 +        while (!m_stopRequested.load(std::memory_order_acquire))
 +        {
-+            const Clock::time_point target = G.next;
++            const Clock::time_point target = G.vblank.next;
 +            G.timerCv.wait_until(lock, target, [this]() { return m_stopRequested.load(std::memory_order_acquire); });
 +            if (m_stopRequested.load(std::memory_order_acquire))
 +                break;
 +            const Clock::time_point now = Clock::now();
-+            if (now < G.next)   // woke early, or the pause (shiftHostDeadlines) pushed the deadline back
++            if (!G.vblank.fire(now))   // woke early
 +                continue;
-+            if (now - G.next > 4 * kVBlankPeriod)
-+                G.next = now;
-+            G.next += kVBlankPeriod;
-+            ++G.vblankDue;
 +            // WOTM_FIELDLOG: three vblanks without the EE reaching a checkpoint or waiting = game thread stuck in some call
-+            if (g_wotmCycleProf && !G.waiting && G.vblankDue >= 3u && !G.stallOpen)
++            if (g_wotmCycleProf && !G.waiting && G.vblank.due >= 3u && !G.stallOpen)
 +            {
 +                G.stallOpen = true;
 +                G.stallStart = now - 2 * kVBlankPeriod;
@@ -2105,8 +2215,8 @@ index 0000000..f2357f5
 +    uint32_t stallPc = 0, stallRa = 0;
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        due = G.vblankDue;
-+        G.vblankDue = 0;
++        due = G.vblank.due;
++        G.vblank.due = 0;
 +        events.swap(m_events);
 +        m_checkpointPending.store(m_stopRequested.load(std::memory_order_acquire), std::memory_order_release);
 +        if (G.stallOpen)
@@ -2260,7 +2370,7 @@ index 0000000..f2357f5
 +        std::unique_lock lock(m_eventMutex);
 +        G.waiting = true;
 +        m_eventCv.wait(lock, [this]()
-+                       { return G.vblankDue > 0u || !m_events.empty() || m_stopRequested.load(std::memory_order_acquire) ||
++                       { return G.vblank.due > 0u || !m_events.empty() || m_stopRequested.load(std::memory_order_acquire) ||
 +                                (G.deliverDepth == 0 && !m_pendingInvocations.empty()); });
 +        G.waiting = false;
 +    }
@@ -2861,12 +2971,12 @@ index 0000000..f2357f5
 +    return m_vsyncTick;
 +}
 +
-+void EeScheduler::shiftHostDeadlines(std::chrono::steady_clock::duration d)
++// The pause length is not used here: the vblank grid kept running during it (EeVBlankClock::resume)
++void EeScheduler::shiftHostDeadlines(std::chrono::steady_clock::duration)
 +{
 +    {
 +        std::lock_guard lock(m_eventMutex);
-+        G.next += d;
-+        G.vblankDue = 0;   // vblanks counted during the pause don't fire on resume
++        G.vblank.resume();
 +    }
 +    G.timerCv.notify_all();
 +}
@@ -3330,10 +3440,57 @@ index b1bb6d8..837a5e2 100644
  
      static void seedGsDrawEnv1(GsDrawEnv1Mem &env,
 diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp b/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
-index d467c4b..c181444 100644
+index d467c4b..3eb746f 100644
 --- a/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
 +++ b/ps2xRuntime/src/lib/Kernel/Stubs/LibC.cpp
-@@ -1080,14 +1080,20 @@ namespace ps2_stubs
+@@ -2,6 +2,8 @@
+ #include "LibC.h"
+ #include "ps2_log.h"
+ 
++#include <cstdint>
++
+ namespace ps2_stubs
+ {
+     namespace
+@@ -336,6 +338,19 @@ namespace ps2_stubs
+         setReturnU32(ctx, (uint32_t)len);
+     }
+ 
++    // newlib's result: the difference of the first differing bytes, compared unsigned, within n bytes. The host strcmp/strncmp
++    // is not used because its value differs by C library (Microsoft's returns -1/0/1), and the game gets it in $v0.
++    static int compareGuestStrings(const char *a, const char *b, size_t n)
++    {
++        for (size_t i = 0; i < n; ++i)
++        {
++            const unsigned char x = static_cast<unsigned char>(a[i]), y = static_cast<unsigned char>(b[i]);
++            if (x != y || x == 0)
++                return int(x) - int(y);
++        }
++        return 0;
++    }
++
+     void strcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         uint32_t str1Addr = getRegU32(ctx, 4); // $a0
+@@ -347,7 +362,7 @@ namespace ps2_stubs
+ 
+         if (hostStr1 && hostStr2)
+         {
+-            result = ::strcmp(hostStr1, hostStr2);
++            result = compareGuestStrings(hostStr1, hostStr2, SIZE_MAX);
+         }
+         else
+         {
+@@ -375,7 +390,7 @@ namespace ps2_stubs
+ 
+         if (hostStr1 && hostStr2)
+         {
+-            result = ::strncmp(hostStr1, hostStr2, size);
++            result = compareGuestStrings(hostStr1, hostStr2, size);
+         }
+         else
+         {
+@@ -1080,14 +1095,20 @@ namespace ps2_stubs
          setReturnU32(ctx, 0u);
      }
  
@@ -6248,4 +6405,161 @@ index 07f9b7a..5aa1cb2 100644
 +                t.Equals(asked[i], i, "controller index should be port + 2 * slot");
 +        });
      });
+ }
+diff --git a/ps2xTest/src/ps2_runtime_io_tests.cpp b/ps2xTest/src/ps2_runtime_io_tests.cpp
+index 4f979be..03042b7 100644
+--- a/ps2xTest/src/ps2_runtime_io_tests.cpp
++++ b/ps2xTest/src/ps2_runtime_io_tests.cpp
+@@ -743,4 +743,39 @@ void register_ps2_runtime_io_tests()
+                      "sceCdRead should copy sector data from the configured image");
+         });
+     });
++
++    // WotM: the game's strcmp/strncmp return what newlib's do, the difference of the first differing bytes (unsigned), on every
++    // host: Microsoft's C library returns -1/0/1 and Apple's the byte difference, and that value stays in $v0 where a network
++    // match's call trace (WOTM_CALLTRACE) sees it
++    MiniTest::Case("WotmStringCompare", [](TestCase &tc)
++    {
++        auto compare = [](auto stub, const char *a, const char *b, uint32_t n)
++        {
++            std::vector<uint8_t> rdram(PS2_RAM_SIZE, 0);
++            R5900Context ctx{};
++            writeGuestString(rdram.data(), GUEST_STRING_AREA_START, a);
++            writeGuestString(rdram.data(), GUEST_STRING_AREA_START + 0x100, b);
++            setRegU32(ctx, 4, GUEST_STRING_AREA_START);
++            setRegU32(ctx, 5, GUEST_STRING_AREA_START + 0x100);
++            setRegU32(ctx, 6, n);
++            stub(rdram.data(), &ctx, nullptr);
++            return getRegS32(&ctx, 2);
++        };
++
++        tc.Run("strcmp returns the byte difference", [&](TestCase &t)
++        {
++            t.Equals(compare(ps2_stubs::strcmp, "abc", "abc", 0u), 0, "equal strings give 0");
++            t.Equals(compare(ps2_stubs::strcmp, "abe", "abc", 0u), 2, "'e' - 'c' = 2");
++            t.Equals(compare(ps2_stubs::strcmp, "ab", "abz", 0u), -int('z'), "a shorter string compares its 0 terminator");
++            t.Equals(compare(ps2_stubs::strcmp, "\xF0", "a", 0u), 0xF0 - int('a'), "bytes compare unsigned");
++        });
++
++        tc.Run("strncmp returns the byte difference within n", [&](TestCase &t)
++        {
++            t.Equals(compare(ps2_stubs::strncmp, "abcX", "abcY", 3u), 0, "only the first n bytes count");
++            t.Equals(compare(ps2_stubs::strncmp, "abcX", "abcY", 4u), int('X') - int('Y'), "'X' - 'Y' = -1");
++            t.Equals(compare(ps2_stubs::strncmp, "cdrom0:", "host0:", 5u), int('c') - int('h'), "'c' - 'h' = -5");
++            t.Equals(compare(ps2_stubs::strncmp, "abc", "xyz", 0u), 0, "n = 0 compares nothing");
++        });
++    });
+ }
+diff --git a/ps2xTest/src/ps2_runtime_kernel_tests.cpp b/ps2xTest/src/ps2_runtime_kernel_tests.cpp
+index 63b12d9..ac35669 100644
+--- a/ps2xTest/src/ps2_runtime_kernel_tests.cpp
++++ b/ps2xTest/src/ps2_runtime_kernel_tests.cpp
+@@ -4,6 +4,7 @@
+ #include "ps2_syscalls.h"
+ #include "ps2_stubs.h"
+ #include "runtime/ee_scheduler.h"
++#include "runtime/ee_vblank_clock.h"
+ 
+ #include <array>
+ #include <atomic>
+@@ -1564,4 +1565,39 @@ void register_ps2_runtime_kernel_tests()
+                      "GetEntryAddress should read and return the handler address from the table");
+         });
+     });
++
++    // WoTM: the game scheduler's vblank clock. The grid keeps running while the EE is paused on the host (a network wait in a
++    // match, photo mode), so resuming must not push the next vblank back by the pause: that left the game waiting the same time
++    // again, and in a network match the two PCs then took turns waiting for each other (stalls every 6th frame, shrinking).
++    MiniTest::Case("WotmVBlankClock", [](TestCase &tc)
++    {
++        using C = EeVBlankClock;
++        const C::Clock::time_point t0{};
++
++        tc.Run("after a pause the next vblank is at most one period away", [&](TestCase &t)
++        {
++            C vb;
++            vb.start(t0);
++            auto now = t0;
++            const auto pause = std::chrono::milliseconds(632);
++            for (; now < t0 + pause; now += std::chrono::milliseconds(1))   // the timer thread keeps firing during the pause
++                vb.fire(now);
++            vb.resume();
++            t.IsTrue(vb.next - now <= C::kPeriod, "the next vblank should fall due within one period of the resume");
++            t.Equals(vb.due, 0u, "the vblanks counted during the pause should not fire on resume");
++        });
++
++        tc.Run("the grid fires once per period and restarts after a long stall", [&](TestCase &t)
++        {
++            C vb;
++            vb.start(t0);
++            t.IsTrue(!vb.fire(t0 + std::chrono::milliseconds(10)), "woken early: no vblank");
++            t.IsTrue(vb.fire(t0 + C::kPeriod), "at the deadline: one vblank");
++            t.Equals(vb.due, 1u, "one vblank due");
++            const auto late = t0 + std::chrono::milliseconds(500);
++            t.IsTrue(vb.fire(late), "a late wake still counts one vblank");
++            t.IsTrue(vb.next == late + C::kPeriod, "after more than 4 periods the grid restarts from now");
++            t.Equals(vb.due, 2u, "a stall adds one vblank, not a burst");
++        });
++    });
+ }
+diff --git a/ps2xTest/src/ps2_vu_tests.cpp b/ps2xTest/src/ps2_vu_tests.cpp
+index b96befe..761fc35 100644
+--- a/ps2xTest/src/ps2_vu_tests.cpp
++++ b/ps2xTest/src/ps2_vu_tests.cpp
+@@ -1042,4 +1042,56 @@ void register_ps2_vu_tests()
+             t.IsTrue(nearlyEqual(out[0], 0.0f), "DropShadowMatrix point mode should subtract d before scaling by k");
+         });
+     });
++
++    // WotM: the VU0 macro ops (PS2_VADD/VSUB/VMUL/VDIV/VMULQ) follow the VU's float rules, like the FPU ops follow ps2_fpu_fix:
++    // no infinity, NaN or denormals, as inputs or results. Plain IEEE math made x86 and ARM disagree (an overflow became inf, then
++    // inf - inf a NaN, which x86 encodes as 0xFFC00000 and ARM as 0x7FC00000), so the checks are on exact bits.
++    MiniTest::Case("WotmVu0MacroFloatRules", [](TestCase &tc)
++    {
++        auto vec = [](uint32_t x, uint32_t y, uint32_t z, uint32_t w)
++        { return _mm_castsi128_ps(_mm_set_epi32(int32_t(w), int32_t(z), int32_t(y), int32_t(x))); };
++        auto bits = [](__m128 v, uint32_t (&out)[4]) { std::memcpy(out, &v, sizeof out); };
++        constexpr uint32_t kFmax = 0x7F7FFFFFu, kInf = 0x7F800000u, kNan = 0x7FC00000u, kOne = 0x3F800000u, kTwo = 0x40000000u;
++
++        tc.Run("overflow gives Fmax with the sign", [&](TestCase &t)
++        {
++            uint32_t r[4];
++            bits(PS2_VADD(vec(kFmax, kFmax | 0x80000000u, kFmax, kOne), vec(kFmax, kFmax | 0x80000000u, kOne, kOne)), r);
++            t.IsTrue(r[0] == kFmax && r[1] == (kFmax | 0x80000000u) && r[2] == kFmax && r[3] == kTwo,
++                     "Fmax + Fmax should stay Fmax (sign kept), small sums unchanged");
++            bits(PS2_VMUL(vec(kFmax, kFmax, kFmax | 0x80000000u, kTwo), vec(kTwo, kFmax, kTwo, kTwo)), r);
++            t.IsTrue(r[0] == kFmax && r[1] == kFmax && r[2] == (kFmax | 0x80000000u) && r[3] == 0x40800000u,
++                     "Fmax * 2 and Fmax * Fmax should be +-Fmax, 2 * 2 = 4");
++        });
++
++        tc.Run("inf and NaN inputs act as Fmax", [&](TestCase &t)
++        {
++            uint32_t r[4];
++            bits(PS2_VSUB(vec(kInf, kNan, kInf, kOne), vec(kInf, kOne, 0u, kOne)), r);
++            t.IsTrue(r[0] == 0u && r[1] == kFmax && r[2] == kFmax && r[3] == 0u,
++                     "exponent-255 inputs are Fmax: inf - inf = 0, NaN - 1 = Fmax, inf - 0 = Fmax");
++            bits(PS2_VMUL(vec(0u, kInf, kNan, kOne), vec(kInf, 0u, 0u, kOne)), r);
++            t.IsTrue(r[0] == 0u && r[1] == 0u && r[2] == 0u && r[3] == kOne, "0 * inf and NaN * 0 should be 0, never NaN");
++            bits(PS2_VMULQ(vec(kInf, kOne, kTwo, 0u), 0.5f), r);
++            t.IsTrue(r[0] == 0x7EFFFFFFu && r[1] == 0x3F000000u && r[2] == kOne && r[3] == 0u, "VMULQ follows the same rules");
++        });
++
++        tc.Run("denormals are zero with the sign", [&](TestCase &t)
++        {
++            uint32_t r[4];
++            bits(PS2_VADD(vec(0x00000001u, 0x80000001u, 0x00800000u, kOne), vec(0u, 0x80000000u, 0u, 0x00000001u)), r);
++            t.IsTrue(r[0] == 0u && r[1] == 0x80000000u && r[2] == 0x00800000u && r[3] == kOne,
++                     "denormal inputs count as +-0; the smallest normal stays");
++            bits(PS2_VMUL(vec(0x00800000u, 0x80800000u, kOne, kOne), vec(0x3F000000u, 0x3F000000u, kOne, kOne)), r);
++            t.IsTrue(r[0] == 0u && r[1] == 0x80000000u && r[2] == kOne, "a denormal result becomes +-0");
++        });
++
++        tc.Run("division by zero gives Fmax with the xor of the signs", [&](TestCase &t)
++        {
++            uint32_t r[4];
++            bits(PS2_VDIV(vec(kOne, kOne | 0x80000000u, 0u, kTwo), vec(0u, 0u, 0u, kTwo)), r);
++            t.IsTrue(r[0] == kFmax && r[1] == (kFmax | 0x80000000u) && r[2] == kFmax && r[3] == kOne,
++                     "x / 0 = +-Fmax (0 / 0 too, like ps2_fpu_div), 2 / 2 = 1");
++        });
++    });
  }

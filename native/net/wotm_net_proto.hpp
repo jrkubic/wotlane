@@ -16,6 +16,7 @@ namespace wotm_net::proto
     constexpr uint16_t kProtocol = 2;
     constexpr int kMaxPlayers = 8;   // 4 in the game's player slots and 4 in AI slots driven by the network (wotm_multi.inc)
     constexpr uint16_t kDefaultPort = 7777;
+    constexpr uint16_t kDefaultMasterPort = 7778;   // the master server (list of public servers, wotm_net_master.hpp)
     constexpr size_t kMaxRun = 64;   // input frames per message (lockstep never leaves more than the delay pending)
 
     // ENet channels: reliable control (join, start, drop, hash, desync) and unacknowledged inputs (each packet resends whatever the

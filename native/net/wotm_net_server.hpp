@@ -6,13 +6,17 @@
 #include "wotm_net_proto.hpp"
 #include "wotm_net_socket.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 struct _ENetHost;
@@ -30,6 +34,11 @@ namespace wotm_net
         int joinTimeoutMs = 90000;              // anyone who doesn't reach the match in this time is dropped (the game takes ~15 s to load)
         int dropInputPercent = 0;               // test: discards this percentage of the input packets sent
         bool log = true;
+        // public listing: with announceHost set, a thread announces this server to that master every announceEveryMs, with its lobby counts
+        std::string announceHost;
+        uint16_t announcePort = proto::kDefaultMasterPort;
+        std::string name = "wotlane";           // the name shown in the master's list (letters, digits, - and _; up to 16)
+        int announceEveryMs = 10000;
     };
 
     class Server
@@ -87,6 +96,7 @@ namespace wotm_net
             std::string code, name, password;
             int host = -1;                 // owner's index in conns_
             int stage = 1, wins = 0;
+            std::string mods;              // gameplay modifiers, canonical list (wotm_modifiers.hpp); "" = none
             std::vector<int> members;      // indices into conns_
             std::string build;
             std::unique_ptr<Match> match;
@@ -104,12 +114,17 @@ namespace wotm_net
         void leaveLobby(int c);
         bool closeIfEmpty(int lobby);
         void sendMembers(int lobby);
+        // SETTINGS <code> stage=<n> wins=<n> mods=<list>
+        std::string settingsLine(const Lobby &l) const;
         void sendSettings(int lobby);
         void startMatch(int lobby);
         std::string newCode();
         int lobbyByCode(const std::string &code) const;
         int openLobbies() const;
         std::string lobbyLine(int i) const;
+
+        void updateCounts();
+        void announceLoop();
 
         void serviceEnet(int ms);
         void onReceive(_ENetPeer *peer, const std::vector<uint8_t> &data);
@@ -129,5 +144,11 @@ namespace wotm_net
         _ENetHost *host_ = nullptr;
         bool enetUp_ = false;
         std::mt19937_64 rng_;
+        // what the announcer sends the master (updated by poll): open lobbies, lobbies waiting for players, players in all lobbies
+        std::atomic<int> open_{0}, waiting_{0}, players_{0};
+        std::thread announcer_;
+        std::mutex announceMu_;
+        std::condition_variable announceCv_;
+        bool stopAnnouncing_ = false;
     };
 }
