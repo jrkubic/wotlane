@@ -1,0 +1,50 @@
+# ABOUTME: Builds and tests everything that needs no game files, on every push and pull request: the netcode (wotm_server and
+# ABOUTME: wotm_net_test) on Windows and Linux, the launcher and its test suite on Windows, and the doc linter on the lines a PR adds.
+name: tests
+on: [push, pull_request]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # doclint compares a pull request with its base
+
+      # Same steps as tools\build_net.bat, with the Visual Studio the runner has (the script expects the Build Tools install path).
+      - name: netcode (wotm_server, wotm_net_test)
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+          cmake -S native\net -B native\net\build -G Ninja -DCMAKE_BUILD_TYPE=Release || exit /b 1
+          cmake --build native\net\build || exit /b 1
+          native\net\build\wotm_net_test.exe
+
+      - name: launcher (WotM_Launcher.exe)
+        shell: cmd
+        run: tools\launcher\build.bat
+
+      - name: launcher tests (against the wotm_server just built)
+        shell: cmd
+        run: tools\launcher\test.bat
+
+      # tools/doclint.py checks the staged lines: for a pull request, stage everything it adds over its base; for a push, only
+      # the whole TODO.md is checked.
+      - name: doclint
+        shell: bash
+        run: |
+          if [ -n "$BASE" ]; then
+            git fetch -q origin "$BASE"
+            git reset -q --soft "$(git merge-base HEAD "origin/$BASE")"
+          fi
+          python tools/doclint.py
+        env:
+          BASE: ${{ github.base_ref }}
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: netcode (wotm_server, wotm_net_test)
+        run: sh tools/test_net.sh
