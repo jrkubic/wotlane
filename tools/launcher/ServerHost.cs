@@ -140,8 +140,8 @@ class ServerHost : IDisposable
         return null;
     }
 
-    // Opens the port (TCP and UDP) on the router through Windows UPnP (HNetCfg.NATUPnP). Returns the external IP, or null with the
-    // reason in why. Takes a few seconds: call it off the UI thread.
+    // Opens the port (TCP and UDP) on the router through Windows UPnP (HNetCfg.NATUPnP). Returns the external address the router reports
+    // (public or not: Reach.AddressVerdict judges it), or null with the reason in why. Takes a few seconds: call it off the UI thread.
     public string MapUpnp(out string why)
     {
         why = null;
@@ -159,11 +159,7 @@ class ServerHost : IDisposable
                 lock (mapped) mapped.Add(proto);
                 if (m != null && external == null) external = m.ExternalIPAddress;
             }
-            if (string.IsNullOrEmpty(external) || Kind(IPAddress.Parse(external)) != "public")
-            {
-                why = "the router has no public address (" + (external ?? "none") + "): likely CGNAT, use Tailscale";
-                return null;
-            }
+            if (string.IsNullOrEmpty(external)) { why = "the router did not report its address"; return null; }
             return external;
         }
         catch (Exception e) { why = "UPnP failed: " + e.Message; return null; }

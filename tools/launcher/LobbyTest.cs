@@ -158,6 +158,37 @@ static class LobbyTest
                 Check(a != null && ServerHost.Kind(a) == "public", "a public address comes back (" + (a == null ? "none" : a.ToString()) + ")");
                 Check(Stun.PublicAddress(new[] { "127.0.0.1:9" }, 300) == null, "a silent server gives null within the timeout");
             });
+            Run("address_verdict", delegate
+            {
+                IPAddress inet = IPAddress.Parse("203.0.113.9");
+                string share;
+                string v = Reach.AddressVerdict("203.0.113.9", null, inet, 7777, out share);
+                Check(v.Contains("confirmed from outside") && share == "203.0.113.9", "router and internet agree");
+                v = Reach.AddressVerdict("192.168.0.5", null, inet, 7777, out share);
+                Check(v.Contains("behind another router") && v.Contains("192.168.0.5") && v.Contains("203.0.113.9") && v.Contains("forward port 7777") && share == "203.0.113.9",
+                    "router has a private address: double NAT");
+                v = Reach.AddressVerdict("100.70.1.2", null, inet, 7777, out share);
+                Check(v.Contains("behind another router") && share == "203.0.113.9", "router has a carrier (CGNAT) address");
+                v = Reach.AddressVerdict("198.51.100.7", null, inet, 7777, out share);
+                Check(v.Contains("router says 198.51.100.7") && v.Contains("internet sees 203.0.113.9") && share == "203.0.113.9", "two different public addresses");
+                v = Reach.AddressVerdict(null, "UPnP failed: timeout", inet, 7777, out share);
+                Check(v.Contains("203.0.113.9") && v.Contains("not opened") && share == "203.0.113.9", "UPnP failed, STUN answered");
+                v = Reach.AddressVerdict("203.0.113.9", null, null, 7777, out share);
+                Check(v.Contains("could not confirm") && share == "203.0.113.9", "no STUN answer, router public: keep the router's address");
+                v = Reach.AddressVerdict("192.168.0.5", null, null, 7777, out share);
+                Check(v.Contains("no public address") && share == null, "no STUN answer, router private");
+                v = Reach.AddressVerdict(null, "UPnP failed: timeout", null, 7777, out share);
+                Check(v.Contains("Could not learn") && share == null, "nothing known");
+            });
+            Run("port_test", delegate
+            {
+                string detail;
+                Check(Reach.PortTest(IPAddress.Loopback, port, 2000, out detail) && detail.EndsWith(" ms"), "the test server answers HELLO (" + detail + ")");
+                Check(!Reach.PortTest(IPAddress.Loopback, 1, 1000, out detail), "a closed port does not (" + detail + ")");
+                Check(Reach.PortTestLine(true, "203.0.113.9", 7777).StartsWith("Port test: friends can reach 203.0.113.9:7777"), "positive line");
+                string neg = Reach.PortTestLine(false, "203.0.113.9", 7777);
+                Check(neg.Contains("no answer at 203.0.113.9:7777") && neg.Contains("ask a friend") && neg.Contains("forward port 7777"), "inconclusive line");
+            });
             Run("firewall_verdict", delegate
             {
                 const int all = 0x7FFFFFFF, priv = FirewallCheck.Private, pub = FirewallCheck.Public;

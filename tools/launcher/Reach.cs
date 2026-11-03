@@ -95,3 +95,60 @@ static class Stun
         catch (Exception) { return null; }
     }
 }
+
+// The verdicts, as lines for the host's share box.
+static class Reach
+{
+    // The line about the public address, from what the router said over UPnP (external, or null when the mapping failed) and what the
+    // internet sees (stun, or null when no STUN server answered). shareAddress = what friends type (null = none known).
+    public static string AddressVerdict(string external, string why, IPAddress stun, int port, out string shareAddress)
+    {
+        bool routerPublic = external != null && ServerHost.Kind(IPAddress.Parse(external)) == "public";
+        string forward = "UPnP opened only the near router: forward port " + port + " (TCP and UDP) on the outer router to the near router's address, " +
+            "or have everyone join your Tailscale network.";
+        if (stun == null)
+        {
+            shareAddress = routerPublic ? external : null;
+            if (external == null) return "Could not learn the public address (no answer from the STUN servers).";
+            if (routerPublic) return "Internet address " + external + " (from the router; could not confirm it from outside: no answer from the STUN servers).";
+            return "Your router has no public address (" + external + "): it sits behind another router or the provider's shared address (CGNAT). " + forward;
+        }
+        shareAddress = stun.ToString();
+        if (external == null) return "Internet address " + stun + " (port " + port + " not opened on the router, see the Router line).";
+        if (external == shareAddress) return "Internet address " + stun + ", confirmed from outside.";
+        if (!routerPublic) return "Your router sits behind another router or the provider's shared address (router " + external + ", internet " + stun + "). " + forward;
+        return "The router says " + external + " but the internet sees " + stun + ": there is another router or the provider's shared address in between. " + forward;
+    }
+
+    // TCP connect to addr:port, HELLO, one line back: any line, even an ERROR, proves wotm_server answered. Through the router's own
+    // public address this is the NAT hairpin test; routers that cannot loop back give "no connection", which proves nothing.
+    public static bool PortTest(IPAddress addr, int port, int timeoutMs, out string detail)
+    {
+        var watch = Stopwatch.StartNew();
+        using (var tcp = new TcpClient(AddressFamily.InterNetwork))
+        {
+            try
+            {
+                IAsyncResult ar = tcp.BeginConnect(addr, port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(timeoutMs) || !tcp.Connected) { detail = "no connection"; return false; }
+                tcp.EndConnect(ar);
+                NetworkStream s = tcp.GetStream();
+                s.ReadTimeout = timeoutMs;
+                byte[] hello = Encoding.ASCII.GetBytes("HELLO 0 porttest\n");
+                s.Write(hello, 0, hello.Length);
+                var buf = new byte[256];
+                if (s.Read(buf, 0, buf.Length) <= 0) { detail = "connected, but no answer"; return false; }
+                detail = "answered in " + watch.ElapsedMilliseconds + " ms";
+                return true;
+            }
+            catch (Exception e) { detail = e.Message; return false; }
+        }
+    }
+
+    public static string PortTestLine(bool reachable, string addr, int port)
+    {
+        return reachable ? "Port test: friends can reach " + addr + ":" + port + " (tested through your router)."
+            : "Port test: no answer at " + addr + ":" + port + " from inside. Some routers cannot test themselves, so ask a friend to try; " +
+              "if they also get nothing, forward port " + port + " (TCP and UDP) on your router.";
+    }
+}
