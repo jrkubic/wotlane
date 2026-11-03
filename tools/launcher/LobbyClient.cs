@@ -137,7 +137,8 @@ class LobbyClient : IDisposable
         return new MemberInfo { Code = w[1], Host = w[2], Names = w[3] == "-" ? new string[0] : w[3].Split(',') };
     }
 
-    // the lobby's stage and wins (SETTINGS <code> stage=<n> wins=<n>), the latest that arrived through Create, Join or Set
+    // the lobby's stage, wins and modifiers (SETTINGS <code> stage=<n> wins=<n> mods=<list>), the latest that arrived through Create,
+    // Join, Set or SetMods
     public Dictionary<string, string> Settings = new Dictionary<string, string>();
 
     // Creates a lobby (the creator is its owner) and joins it; returns the code
@@ -168,6 +169,39 @@ class LobbyClient : IDisposable
         Send("SET stage=" + stage + " wins=" + wins);
         Settings = KeyValues(Expect("SETTINGS", timeoutMs));
         return Settings;
+    }
+
+    // owner only: the gameplay modifiers of the next match ("jump,turbo", "" = none); returns what the server stored
+    public Dictionary<string, string> SetMods(string mods, int timeoutMs)
+    {
+        Send("SET mods=" + mods);
+        Settings = KeyValues(Expect("SETTINGS", timeoutMs));
+        return Settings;
+    }
+
+    // the gameplay modifiers (native/net/wotm_modifiers.hpp): lobby names in canonical order, and what the launcher shows
+    public static readonly string[] ModifierNames = { "jump", "fast", "turbo" };
+    public static readonly string[] ModifierLabels = { "Super Jump", "Fast Monsters", "Turbo" };
+
+    // WOTM_MODIFIERS / SET mods= list of the modifiers that are on, in canonical order
+    public static string ModifierList(bool jump, bool fast, bool turbo)
+    {
+        bool[] on = { jump, fast, turbo };
+        var names = new List<string>();
+        for (int i = 0; i < on.Length; ++i) if (on[i]) names.Add(ModifierNames[i]);
+        return string.Join(",", names.ToArray());
+    }
+
+    // "Super Jump, Turbo" for "jump,turbo"; "no modifiers" for an empty list
+    public static string ModifierLabel(string mods)
+    {
+        var labels = new List<string>();
+        foreach (string n in mods.Split(','))
+        {
+            int i = Array.IndexOf(ModifierNames, n);
+            if (i >= 0) labels.Add(ModifierLabels[i]);
+        }
+        return labels.Count > 0 ? string.Join(", ", labels.ToArray()) : "no modifiers";
     }
 
     public List<LobbyInfo> List(int timeoutMs)
@@ -208,6 +242,7 @@ class LobbyClient : IDisposable
             { "WOTM_FIXEDSTEP", m["step"] },
             { "WOTM_SEED", m["seed"] },
             { "WOTM_KILLTARGET", m.ContainsKey("wins") ? m["wins"] : "0" },
+            { "WOTM_MODIFIERS", m.ContainsKey("mods") ? m["mods"] : "" },
             { "WOTM_LOCALPLAYER", (you + 1).ToString() },
         };
     }

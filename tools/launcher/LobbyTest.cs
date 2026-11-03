@@ -47,11 +47,15 @@ static class LobbyTest
                     Check(l[0].Name == "Sala" && l[0].Host == "Ana" && l[0].Names.Length == 2 && l[0].Names[1] == "Bia", "name, owner and members");
                     Dictionary<string, string> s = a.Set(4, 2, 2000);
                     Check(s["stage"] == "4" && s["wins"] == "2", "owner's SET");
+                    Check(s["mods"] == "", "no modifiers at first");
+                    s = a.SetMods("turbo,jump", 2000);
+                    Check(s["mods"] == "jump,turbo" && s["stage"] == "4", "owner's SET mods, stored in canonical order");
                     a.Send("START");
                     Dictionary<string, string> ea = LobbyClient.MatchEnv(LobbyClient.KeyValues(a.Expect("MATCH", 2000)), "127.0.0.1");
                     Dictionary<string, string> eb = LobbyClient.MatchEnv(LobbyClient.KeyValues(b.Expect("MATCH", 2000)), "127.0.0.1");
                     Check(ea["WOTM_MATCH"] == "3,1,4" && eb["WOTM_MATCH"] == "3,1,4", "WOTM_MATCH");
                     Check(ea["WOTM_KILLTARGET"] == "2" && eb["WOTM_KILLTARGET"] == "2", "wins");
+                    Check(ea["WOTM_MODIFIERS"] == "jump,turbo" && eb["WOTM_MODIFIERS"] == "jump,turbo", "modifiers");
                     Check(ea["WOTM_PLAYERS"] == "2" && ea["WOTM_FIXEDSTEP"] == "1", "players and step");
                     Check(ea["WOTM_SEED"] == eb["WOTM_SEED"], "same seed");
                     Check(ea["WOTM_LOCALPLAYER"] == "1" && eb["WOTM_LOCALPLAYER"] == "2", "local player");
@@ -74,6 +78,17 @@ static class LobbyTest
                     try { b.Set(2, 1, 2000); }
                     catch (LobbyError e) { notHost = e.Message.Contains("owner"); }
                     Check(notHost, "only the owner changes the settings");
+                    notHost = false;
+                    try { b.SetMods("jump", 2000); }
+                    catch (LobbyError e) { notHost = e.Message.Contains("owner"); }
+                    Check(notHost, "only the owner changes the modifiers");
+                    Check(a.SetMods("fast", 2000)["mods"] == "fast", "owner sets fast");
+                    bool unknown = false;
+                    try { a.SetMods("jump,moon", 2000); }
+                    catch (LobbyError e) { unknown = e.Message.Contains("unknown modifier"); }
+                    Check(unknown, "an unknown modifier is refused");
+                    Check(a.Set(2, 1, 2000)["mods"] == "fast", "the refused list changed nothing");
+                    Check(a.SetMods("", 2000)["mods"] == "", "empty list = none");
                     LobbyClient.MemberInfo m = LobbyClient.ParseMembers("MEMBERS " + code + " Ana Ana:3,Bia:1");
                     Check(m != null && m.Code == code && m.Host == "Ana" && m.Names.Length == 2 && m.Names[1] == "Bia:1", "MEMBERS line");
                 }
@@ -169,6 +184,16 @@ static class LobbyTest
                 Check(h == "master.example.org" && mp == 7778, "default master port");
                 LobbyClient.SplitAddress(" 192.168.2.243:9000 ", LobbyClient.MasterPort, out h, out mp);
                 Check(h == "192.168.2.243" && mp == 9000, "explicit port");
+            });
+            Run("modifier_list", delegate
+            {
+                Check(LobbyClient.ModifierList(false, false, false) == "", "none");
+                Check(LobbyClient.ModifierList(true, false, true) == "jump,turbo", "canonical order");
+                Check(LobbyClient.ModifierList(true, true, true) == "jump,fast,turbo", "all three");
+                Check(LobbyClient.ModifierLabel("") == "no modifiers", "label of none");
+                Check(LobbyClient.ModifierLabel("jump,fast,turbo") == "Super Jump, Fast Monsters, Turbo", "label of all three");
+                var m = LobbyClient.KeyValues("MATCH lobby=ABCD players=2 stage=1 wins=0 monsters=3,1 names=Ana,Bia seed=7 step=1 you=0 token=t port=7777");
+                Check(LobbyClient.MatchEnv(m, "h")["WOTM_MODIFIERS"] == "", "a MATCH without mods= sets none");
             });
             Run("no_master", delegate
             {

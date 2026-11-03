@@ -163,6 +163,7 @@ class Launcher : Form
             matchLevel.SelectedIndex = 0;
             for (int i = 0; i < matchAIs.Length; ++i) { matchAIs[i].SelectedIndex = i == 0 ? 1 : 0; matchAISkins[i].SelectedIndex = 0; }
             foreach (CheckBox c in cheatBoxes) c.Checked = false;
+            foreach (CheckBox c in modBoxes) c.Checked = false;
             cheatStamina.SelectedIndex = 0;
             cheatWin.Value = 0;
         };
@@ -204,6 +205,10 @@ class Launcher : Form
     readonly ComboBox[] matchAIs = new ComboBox[MatchMaxAIs];
     readonly ComboBox matchPlayerSkin = SkinBox(120);
     readonly ComboBox[] matchAISkins = new ComboBox[MatchMaxAIs];
+    // gameplay modifiers, in LobbyClient.ModifierNames order
+    readonly CheckBox[] modBoxes = new CheckBox[3];
+
+    string ModsValue() { return LobbyClient.ModifierList(modBoxes[0].Checked, modBoxes[1].Checked, modBoxes[2].Checked); }
 
     // Skin box item: the text and the WOTM_MATCH value ("0".."3", the mod skin id, "random")
     class SkinItem
@@ -365,6 +370,24 @@ class Launcher : Form
         tips.SetToolTip(matchLevel, "Number = stage index in GLOSSARIO.md. Every stage fits 8 monsters: the monsters load above 32 MB (64 MB runtime); " +
             "Metro City with 8 still has ~21 MB to spare.");
         inner.Controls.Add(Row("Stage", matchLevel));
+
+        var modsRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        modsRow.Controls.Add(new Label { Text = "Modifiers:", AutoSize = true, Margin = new Padding(3, 6, 3, 0) });
+        string[] modTips = {
+            "Moon gravity: everyone jumps about twice as high and thrown monsters float.",
+            "Monsters walk, run and dash 1.5x faster; animations and attacks keep their speed.",
+            "The whole game runs at 2x speed (sound stays at normal speed)." };
+        for (int i = 0; i < modBoxes.Length; ++i)
+        {
+            var cb = new DarkCheckBox { Text = LobbyClient.ModifierLabels[i], AutoSize = true };
+            cb.Checked = saved.TryGetValue(":Mod_" + LobbyClient.ModifierNames[i], out v) && v == "1";
+            tips.SetToolTip(cb, modTips[i] + " Offline, or the host's choice for the lobby (sent to the server; joiners play the host's). " +
+                "With all three off, offline uses the in-game panel's MODIFIERS tab.");
+            cb.CheckedChanged += delegate { if (lobbyOwner) NetSend("SET mods=" + ModsValue()); };
+            modBoxes[i] = cb;
+            modsRow.Controls.Add(cb);
+        }
+        inner.Controls.Add(modsRow);
 
         inner.Controls.Add(new Label { Text = "AI opponents (up to 7; none = play solo on the stage):", AutoSize = true, Margin = new Padding(3, 6, 3, 0) });
         var foes = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, MaximumSize = new Size(420, 0), WrapContents = true };
@@ -669,11 +692,17 @@ class Launcher : Form
         NetSend("JOIN " + code + " " + name + " " + monster + NetPassword());
     }
 
-    // the owner sends the current stage and wins, then starts
+    // the owner's stage, wins and modifiers for the lobby
+    string NetSetLine()
+    {
+        return "SET stage=" + LevelIds[matchLevel.SelectedIndex] + " wins=" + (int)netWins.Value + " mods=" + ModsValue();
+    }
+
+    // the owner sends the current settings, then starts
     void NetStart()
     {
         if (!lobbyOwner) { netInfo.Text = "Only the lobby host starts the match."; return; }
-        NetSend("SET stage=" + LevelIds[matchLevel.SelectedIndex] + " wins=" + (int)netWins.Value);
+        NetSend(NetSetLine());
         NetSend("START");
     }
 
@@ -829,23 +858,27 @@ class Launcher : Form
             else if (l == "END" && netLobbies.Count == 0) netInfo.Text = "No open lobbies on this server: host one.";
             else if (l.StartsWith("CREATED ")) { netCode.Text = l.Substring(8).Trim(); ShowShare(); }
             else if (l.StartsWith("JOINED ")) { lobbyCode = l.Substring(7).Trim(); netCode.Text = lobbyCode; ShowShare(); }
-            else if (l.StartsWith("LEFT ")) { lobbyCode = ""; lobbyOwner = false; netStart.Enabled = false; netInfo.Text = "Left the lobby."; }
+            else if (l.StartsWith("LEFT ")) { lobbyCode = ""; NetNotInLobby(); netInfo.Text = "Left the lobby."; }
             else if (l.StartsWith("SETTINGS "))
             {
                 Dictionary<string, string> kv = LobbyClient.KeyValues(l);
                 int wins = kv.ContainsKey("wins") ? ParseInt(kv["wins"]) : 0;
-                netSettings = "stage " + (kv.ContainsKey("stage") ? kv["stage"] : "?") + ", " + (wins > 0 ? wins + " wins to end" : "endless");
+                netSettings = "stage " + (kv.ContainsKey("stage") ? kv["stage"] : "?") + ", " + (wins > 0 ? wins + " wins to end" : "endless") +
+                    ", " + LobbyClient.ModifierLabel(kv.ContainsKey("mods") ? kv["mods"] : "");
+                ShowLobby();
             }
             else if (l.StartsWith("MEMBERS "))
             {
                 LobbyClient.MemberInfo m = LobbyClient.ParseMembers(l);
                 if (m == null) continue;
+                bool wasOwner = lobbyOwner;
+                lobbyMembers = m;
                 lobbyOwner = m.Host == LobbyClient.CleanName(netName.Text);
                 netStart.Enabled = lobbyOwner;
-                var names = new List<string>();
-                foreach (string n in m.Names) names.Add(n.Split(':')[0]);
-                netInfo.Text = "Lobby " + m.Code + " (code for friends): " + string.Join(", ", names.ToArray()) + ". Host: " + m.Host +
-                    (netSettings.Length > 0 ? " (" + netSettings + ")" : "") + "." + (lobbyOwner ? " Press Start match when everyone is in." : " Waiting for the host to start.");
+                // a joiner plays the host's modifiers (shown in the lobby line), so its own boxes do not apply in the lobby
+                foreach (CheckBox c in modBoxes) c.Enabled = lobbyOwner;
+                if (lobbyOwner && !wasOwner) NetSend(NetSetLine());   // the lobby shows the new host's settings before Start match
+                ShowLobby();
             }
             else if (l.StartsWith("ERROR ")) netInfo.Text = "Server: " + l.Substring(6);
             else if (l.StartsWith("MATCH ")) PlayOnline(LobbyClient.MatchEnv(LobbyClient.KeyValues(l), lobbyHost));
@@ -855,9 +888,30 @@ class Launcher : Form
             netInfo.Text = "Connection to the server closed.";
             netTimer.Stop();
             lobby = null;
-            lobbyOwner = false;
-            netStart.Enabled = false;
+            NetNotInLobby();
         }
+    }
+
+    LobbyClient.MemberInfo lobbyMembers;
+
+    // the lobby line: code, members, host and the lobby's settings
+    void ShowLobby()
+    {
+        LobbyClient.MemberInfo m = lobbyMembers;
+        if (m == null) return;
+        var names = new List<string>();
+        foreach (string n in m.Names) names.Add(n.Split(':')[0]);
+        netInfo.Text = "Lobby " + m.Code + " (code for friends): " + string.Join(", ", names.ToArray()) + ". Host: " + m.Host +
+            (netSettings.Length > 0 ? " (" + netSettings + ")" : "") + "." + (lobbyOwner ? " Press Start match when everyone is in." : " Waiting for the host to start.");
+    }
+
+    void NetNotInLobby()
+    {
+        lobbyOwner = false;
+        lobbyMembers = null;
+        netSettings = "";
+        netStart.Enabled = false;
+        foreach (CheckBox c in modBoxes) c.Enabled = true;
     }
     static int MonsterId(int k) { return k >= MonsterIds.Length ? RandomId : MonsterIds[k]; }
 
@@ -960,6 +1014,7 @@ class Launcher : Form
         lines.Add(":NetName|" + netName.Text.Trim());
         lines.Add(":NetLobbyName|" + netLobbyName.Text.Trim());
         lines.Add(":NetWins|" + (int)netWins.Value);
+        for (int i = 0; i < modBoxes.Length; ++i) lines.Add(":Mod_" + LobbyClient.ModifierNames[i] + "|" + (modBoxes[i].Checked ? "1" : "0"));
         lines.Add(":NetMaster|" + netMaster.Text.Trim());
         lines.Add(":NetPublic|" + (netPublic.Checked ? "1" : "0"));
         lines.Add(":NetPublicName|" + netPublicName.Text.Trim());
@@ -969,7 +1024,8 @@ class Launcher : Form
     // Video, QoL and separate keyboard live in the main menu's "Recompiled options" panel (native/wotm_settings.hpp, settings.ini
     // next to save.json). The launcher does not pass them; an inherited variable would override the file, so it is removed.
     static readonly string[] SettingsKeys = { "WOTM_RES", "WOTM_ASPECT", "WOTM_FULLSCREEN", "WOTM_HZ", "WOTM_VSYNC",
-        "WOTM_LOCKTOGGLE", "WOTM_ENEMYBARS", "WOTM_DAMAGEPOP", "WOTM_KBSEPARATE", "WOTM_SKIPINTRO", "WOTM_VIBRATION", "WOTM_INTERP" };
+        "WOTM_LOCKTOGGLE", "WOTM_ENEMYBARS", "WOTM_DAMAGEPOP", "WOTM_KBSEPARATE", "WOTM_SKIPINTRO", "WOTM_VIBRATION", "WOTM_INTERP",
+        "WOTM_SUPERJUMP", "WOTM_FASTMONSTERS", "WOTM_TURBO" };
 
     // The runtime folder (the one with run_live.ps1): WOTM_RECOMP_DIR, then the .wotm_recomp_dir that run_live.bat saves in the repo root.
     string KnownRuntimeDir()
@@ -1101,6 +1157,10 @@ class Launcher : Form
         string cheats = CheatsValue();
         if (cheats.Length > 0) psi.EnvironmentVariables["WOTM_CHEATS"] = cheats;
         else psi.EnvironmentVariables.Remove("WOTM_CHEATS");
+        // all off: the panel's MODIFIERS tab (settings.ini) decides; a network match replaces this with the lobby's list
+        string mods = ModsValue();
+        if (mods.Length > 0) psi.EnvironmentVariables["WOTM_MODIFIERS"] = mods;
+        else psi.EnvironmentVariables.Remove("WOTM_MODIFIERS");
         return psi;
     }
 

@@ -69,11 +69,13 @@ A master server keeps the list of public servers, so players can find them witho
    sets Server to it and lists its lobbies. Then:
    - **To host a lobby:** type a **Lobby name** (and a **Password** if you want only friends to get in) and press **Host lobby**.
      The server gives the lobby a 4-letter **code** (it appears in the Code box and under the buttons): tell it to your friends.
-     You are the lobby's host: you pick the stage (Match group) and the **Wins to end** (0 = endless) and press **Start match**.
+     You are the lobby's host: you pick the stage and the **Modifiers** (Super Jump, Fast Monsters, Turbo; Match group) and the
+     **Wins to end** (0 = endless) and press **Start match**. Joiners' Modifiers boxes are greyed out in a lobby: everyone plays the
+     host's.
    - **To join:** type the code and press **Join by code**, or press **Refresh list**, pick a lobby and press **Join selected**
      (double-click works too). Lobbies marked `[password]` need the host's password in the Password box.
-   The line under the buttons lists who is in the lobby, the host, the stage and the wins. If the host leaves, the next player becomes
-   the host. An empty lobby closes.
+   The line under the buttons lists who is in the lobby, the host, the stage, the wins and the modifiers. If the host leaves, the next
+   player becomes the host (and the lobby takes the new host's settings). An empty lobby closes.
 4. When everyone is in, the host presses **Start match**. The game opens on every PC, loads the stage and waits until everyone has
    arrived; the server measures the ping and picks the input delay. The launcher minimizes and stays in the lobby.
 5. In the game: your controller (or keyboard) drives your monster; the screen shows only your view. Top right: ping and input delay in
@@ -90,7 +92,7 @@ to the console) and starts once that many players are in; `--code <code> --name 
 ## What is different online
 
 - Gameplay modifiers (Super Jump, Fast Monsters, Turbo) are the lobby's: the host sets them (`SET mods=<list>` in the lobby
-  protocol, `--mods` in `net_lobby.py`), every PC gets them in `MATCH` (`WOTM_MODIFIERS`), and the MODIFIERS tab shows them locked. A PC
+  protocol, the **Modifiers** boxes in the launcher, `--mods` in `net_lobby.py`), every PC gets them in `MATCH` (`WOTM_MODIFIERS`), and the MODIFIERS tab shows them locked. A PC
   with a different list is refused at join. Turbo doubles the fields per frame during the fight only: menus keep their speed.
 
 - Endless free-for-all with Wins to end 0: knocked-out monsters get back up, no end-of-match screen; QUIT from the pause menu (or closing the window) leaves. With a wins
